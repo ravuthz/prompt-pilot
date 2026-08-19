@@ -1,0 +1,10 @@
+@import "tailwindcss";
+@plugin "daisyui" {
+  themes: silk --default, business --prefersdark;
+}
+@source "./sidepanel.html";
+@source "./sidepanel.js";
+
+html, body { min-width: 320px; }
+body { min-height: 100vh; }
+.prompt-scroll { scrollbar-width: thin; }

@@ -1,0 +1,15 @@
+{
+  "name": "prompt-pilot-extension",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Chrome side panel for sending bulk prompts to AI chat sites.",
+  "scripts": {
+    "build": "tailwindcss -i ./src.css -o ./styles.css --minify",
+    "watch": "tailwindcss -i ./src.css -o ./styles.css --watch"
+  },
+  "devDependencies": {
+    "@tailwindcss/cli": "^4.1.12",
+    "daisyui": "^5.0.50",
+    "tailwindcss": "^4.1.12"
+  }
+}
