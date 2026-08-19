@@ -200,6 +200,37 @@
     return { ok: true };
   }
 
+  function mediaExtension(url, type) {
+    try {
+      const match = new URL(url, location.href).pathname.match(/\.([a-z0-9]{2,5})$/i);
+      if (match) return match[1].toLowerCase();
+    } catch {}
+    return type === 'video' ? 'mp4' : 'jpg';
+  }
+
+  function scanMedia() {
+    const found = new Map();
+    const add = (url, type, width = 0, height = 0) => {
+      if (!url || url.startsWith('data:image/svg') || found.has(url)) return;
+      if (type === 'image' && width && height && (width < 240 || height < 120)) return;
+      const index = found.size + 1;
+      const extension = mediaExtension(url, type);
+      found.set(url, { url, type, width, height, name: `flow-${type}-${String(index).padStart(3, '0')}.${extension}` });
+    };
+
+    document.querySelectorAll('video').forEach((video) => {
+      add(video.currentSrc || video.src || video.querySelector('source')?.src, 'video', video.videoWidth, video.videoHeight);
+      add(video.poster, 'image', video.clientWidth, video.clientHeight);
+    });
+    document.querySelectorAll('img').forEach((img) => add(img.currentSrc || img.src, 'image', img.naturalWidth, img.naturalHeight));
+    document.querySelectorAll('[style]').forEach((element) => {
+      const background = getComputedStyle(element).backgroundImage;
+      const match = background?.match(/^url\(["']?(.*?)["']?\)$/);
+      if (match) add(match[1], 'image', element.clientWidth, element.clientHeight);
+    });
+    return [...found.values()];
+  }
+
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     if (message.type === 'PROMPT_PILOT_DETECT') {
       sendResponse({ site: adapter().name });
@@ -236,6 +267,25 @@
         sendResponse({ ok: true });
       });
       return true;
+    }
+    if (message.type === 'PROMPT_PILOT_SCAN_MEDIA') {
+      sendResponse({ media: scanMedia() });
+      return;
+    }
+    if (message.type === 'PROMPT_PILOT_DOWNLOAD_BLOB') {
+      try {
+        const link = document.createElement('a');
+        link.href = message.item.url;
+        link.download = message.item.name;
+        link.hidden = true;
+        document.body.append(link);
+        link.click();
+        link.remove();
+        sendResponse({ ok: true });
+      } catch (error) {
+        sendResponse({ ok: false, error: error.message });
+      }
+      return;
     }
   });
 })();

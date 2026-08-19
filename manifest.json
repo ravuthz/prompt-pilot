@@ -3,7 +3,7 @@
   "name": "Prompt Pilot",
   "version": "1.0.0",
   "description": "Queue and send bulk prompts from a Chrome side panel to popular AI chat sites.",
-  "permissions": ["activeTab", "sidePanel", "storage", "tabs", "scripting", "debugger"],
+  "permissions": ["activeTab", "sidePanel", "storage", "tabs", "scripting", "debugger", "downloads"],
   "host_permissions": ["<all_urls>"],
   "background": { "service_worker": "background.js" },
   "action": { "default_title": "Open Prompt Pilot" },
