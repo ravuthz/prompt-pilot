@@ -2,6 +2,7 @@ const els = {
   prompts: document.querySelector('#prompts'),
   separator: document.querySelector('#separator'),
   delay: document.querySelector('#delay'),
+  delayValue: document.querySelector('#delayValue'),
   autoSend: document.querySelector('#autoSend'),
   count: document.querySelector('#countBadge'),
   site: document.querySelector('#siteBadge'),
@@ -15,6 +16,19 @@ const els = {
 
 let stopped = false;
 let running = false;
+const DELAY_VALUES = [
+  ...Array.from({ length: 20 }, (_, index) => (index + 1) * 3),
+  ...Array.from({ length: 18 }, (_, index) => 90 + index * 30)
+];
+
+function delaySeconds() {
+  return DELAY_VALUES[Number(els.delay.value)] || 3;
+}
+
+function closestDelayIndex(seconds) {
+  return DELAY_VALUES.reduce((bestIndex, value, index) =>
+    Math.abs(value - seconds) < Math.abs(DELAY_VALUES[bestIndex] - seconds) ? index : bestIndex, 0);
+}
 
 function parsePrompts() {
   const text = els.prompts.value.trim();
@@ -31,6 +45,20 @@ function parsePrompts() {
 function updateCount() {
   const count = parsePrompts().length;
   els.count.textContent = `${count} prompt${count === 1 ? '' : 's'}`;
+}
+
+function formatDelay(totalSeconds) {
+  const seconds = Number(totalSeconds);
+  if (seconds < 60) return `${seconds} second${seconds === 1 ? '' : 's'}`;
+  const minutes = Math.floor(seconds / 60);
+  const remainder = seconds % 60;
+  return remainder
+    ? `${minutes}m ${remainder}s`
+    : `${minutes} minute${minutes === 1 ? '' : 's'}`;
+}
+
+function updateDelayLabel() {
+  els.delayValue.textContent = formatDelay(delaySeconds());
 }
 
 function showNotice(message, type = 'info') {
@@ -174,7 +202,7 @@ async function runQueue() {
         stopped = true;
         break;
       }
-      if (index < prompts.length - 1) await wait(Number(els.delay.value) * 1000);
+      if (index < prompts.length - 1) await wait(delaySeconds() * 1000);
     }
 
     if (stopped) {
@@ -196,9 +224,10 @@ async function restore() {
   const saved = await chrome.storage.local.get(['prompts', 'separator', 'delay', 'autoSend']);
   els.prompts.value = saved.prompts || '';
   els.separator.value = saved.separator || 'blank';
-  els.delay.value = saved.delay || '5';
+  els.delay.value = String(closestDelayIndex(Math.min(600, Math.max(3, Number(saved.delay) || 6))));
   els.autoSend.checked = saved.autoSend ?? true;
   updateCount();
+  updateDelayLabel();
   detectSite();
 }
 
@@ -206,10 +235,11 @@ function save() {
   chrome.storage.local.set({
     prompts: els.prompts.value,
     separator: els.separator.value,
-    delay: els.delay.value,
+    delay: String(delaySeconds()),
     autoSend: els.autoSend.checked
   });
   updateCount();
+  updateDelayLabel();
 }
 
 ['input', 'change'].forEach((eventName) => {

@@ -33,14 +33,12 @@
               </select>
             </label>
             <label class="form-control">
-              <span class="label pb-1 text-xs font-medium opacity-70">Delay between sends</span>
-              <select id="delay" class="select select-sm w-full">
-                <option value="3">3 seconds</option>
-                <option value="5" selected>5 seconds</option>
-                <option value="10">10 seconds</option>
-                <option value="20">20 seconds</option>
-                <option value="30">30 seconds</option>
-              </select>
+              <span class="label flex justify-between pb-1 text-xs font-medium opacity-70">
+                <span>Delay between sends</span>
+                <output id="delayValue" for="delay" class="font-mono">5 seconds</output>
+              </span>
+              <input id="delay" type="range" min="0" max="37" step="1" value="1" class="range range-sm w-full" />
+              <span class="mt-1 flex justify-between text-xs opacity-50"><span>3 sec</span><span>1 min</span><span>10 min</span></span>
             </label>
           </div>
           <label class="flex cursor-pointer items-center justify-between gap-3 rounded-box bg-base-200 px-3 py-2.5">
