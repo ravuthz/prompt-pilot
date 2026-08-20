@@ -5,7 +5,6 @@ const els = {
   delayValue: document.querySelector('#delayValue'),
   autoSend: document.querySelector('#autoSend'),
   count: document.querySelector('#countBadge'),
-  site: document.querySelector('#siteBadge'),
   status: document.querySelector('#statusText'),
   progress: document.querySelector('#progress'),
   progressLabel: document.querySelector('#progressLabel'),
@@ -16,9 +15,17 @@ const els = {
 
 Object.assign(els, {
   queueTab: document.querySelector('#queueTab'),
+  favoritesTab: document.querySelector('#favoritesTab'),
   downloadsTab: document.querySelector('#downloadsTab'),
   queuePanel: document.querySelector('#queuePanel'),
+  favoritesPanel: document.querySelector('#favoritesPanel'),
   downloadsPanel: document.querySelector('#downloadsPanel'),
+  favoriteCount: document.querySelector('#favoriteCount'),
+  favoriteTypeTabs: document.querySelector('#favoriteTypeTabs'),
+  favoriteGroups: document.querySelector('#favoriteGroups'),
+  emptyFavorites: document.querySelector('#emptyFavorites'),
+  favoriteNotice: document.querySelector('#favoriteNotice'),
+  saveFavorite: document.querySelector('#saveFavoriteBtn'),
   mediaType: document.querySelector('#mediaType'),
   mediaCount: document.querySelector('#mediaCount'),
   mediaList: document.querySelector('#mediaList'),
@@ -32,6 +39,9 @@ Object.assign(els, {
 let stopped = false;
 let running = false;
 let discoveredMedia = [];
+let favorites = [];
+let activeFavoriteGroup = 'GPT';
+const FAVORITE_GROUP_ORDER = ['GPT', 'Gemini', 'Claude', 'Grok'];
 const DELAY_VALUES = [
   ...Array.from({ length: 20 }, (_, index) => (index + 1) * 3),
   ...Array.from({ length: 18 }, (_, index) => 90 + index * 30)
@@ -93,13 +103,139 @@ function hideNotice() {
 }
 
 function switchPanel(panel) {
+  const favorite = panel === 'favorites';
   const downloads = panel === 'downloads';
-  els.queuePanel.classList.toggle('hidden', downloads);
-  els.queuePanel.classList.toggle('flex', !downloads);
+  const queue = !favorite && !downloads;
+  els.queuePanel.classList.toggle('hidden', !queue);
+  els.queuePanel.classList.toggle('flex', queue);
+  els.favoritesPanel.classList.toggle('hidden', !favorite);
+  els.favoritesPanel.classList.toggle('flex', favorite);
   els.downloadsPanel.classList.toggle('hidden', !downloads);
   els.downloadsPanel.classList.toggle('flex', downloads);
-  els.queueTab.classList.toggle('tab-active', !downloads);
+  els.queueTab.classList.toggle('tab-active', queue);
+  els.favoritesTab.classList.toggle('tab-active', favorite);
   els.downloadsTab.classList.toggle('tab-active', downloads);
+}
+
+function favoriteGroup(url) {
+  const parsed = new URL(url);
+  const host = parsed.hostname.replace(/^www\./, '');
+  if (host === 'chatgpt.com' || host.endsWith('.openai.com')) return 'GPT';
+  if (host === 'gemini.google.com') return 'Gemini';
+  if (host === 'claude.ai') return 'Claude';
+  if (host === 'grok.com' || (host === 'x.com' && parsed.pathname.startsWith('/i/grok'))) return 'Grok';
+  if (host === 'perplexity.ai') return 'Perplexity';
+  if (host === 'copilot.microsoft.com') return 'Microsoft Copilot';
+  if (host === 'labs.google' && parsed.pathname.includes('/fx/tools/flow')) return 'Google Flow';
+  return host;
+}
+
+function cleanFavoriteTitle(title, group) {
+  const cleaned = (title || '').replace(/\s+[-–|]\s+(ChatGPT|Gemini|Claude|Grok|Perplexity).*$/i, '').trim();
+  return cleaned || `${group} chat`;
+}
+
+function showFavoriteNotice(message, type = 'info') {
+  const color = { info: 'alert-info', success: 'alert-success', warning: 'alert-warning', error: 'alert-error' }[type];
+  els.favoriteNotice.className = `alert alert-soft ${color} py-2.5 text-sm`;
+  els.favoriteNotice.textContent = message;
+}
+
+async function persistFavorites() {
+  await chrome.storage.local.set({ favorites });
+}
+
+async function removeFavorite(id) {
+  favorites = favorites.filter((favorite) => favorite.id !== id);
+  await persistFavorites();
+  renderFavorites();
+}
+
+function renderFavorites() {
+  els.favoriteTypeTabs.replaceChildren();
+  els.favoriteGroups.replaceChildren();
+  const extraGroups = [...new Set(favorites.map((favorite) => favorite.group))]
+    .filter((group) => !FAVORITE_GROUP_ORDER.includes(group))
+    .sort((a, b) => a.localeCompare(b));
+  const groups = [...FAVORITE_GROUP_ORDER, ...extraGroups];
+  if (!groups.includes(activeFavoriteGroup)) activeFavoriteGroup = 'GPT';
+
+  groups.forEach((group) => {
+    const count = favorites.filter((favorite) => favorite.group === group).length;
+    const tab = document.createElement('button');
+    tab.type = 'button';
+    tab.role = 'tab';
+    tab.className = `tab shrink-0 gap-1 ${group === activeFavoriteGroup ? 'tab-active' : ''}`;
+    tab.setAttribute('aria-selected', String(group === activeFavoriteGroup));
+    tab.textContent = group;
+    const badge = document.createElement('span');
+    badge.className = 'badge badge-ghost badge-xs';
+    badge.textContent = count;
+    tab.append(badge);
+    tab.addEventListener('click', () => {
+      activeFavoriteGroup = group;
+      renderFavorites();
+    });
+    els.favoriteTypeTabs.append(tab);
+  });
+
+  const items = favorites
+    .filter((favorite) => favorite.group === activeFavoriteGroup)
+    .sort((a, b) => b.savedAt - a.savedAt);
+  const list = document.createElement('ul');
+  list.className = 'list rounded-box border border-base-300 bg-base-200';
+  items.forEach((favorite) => {
+    const row = document.createElement('li');
+    row.className = 'list-row items-center gap-2 px-3 py-2';
+    const details = document.createElement('button');
+    details.type = 'button';
+    details.className = 'list-col-grow min-w-0 cursor-pointer text-left';
+    details.title = favorite.url;
+    details.addEventListener('click', () => chrome.tabs.create({ url: favorite.url }));
+    const title = document.createElement('p');
+    title.className = 'truncate text-sm font-medium';
+    title.textContent = favorite.title;
+    const url = document.createElement('p');
+    url.className = 'truncate text-xs opacity-50';
+    url.textContent = favorite.url;
+    details.append(title, url);
+    const remove = document.createElement('button');
+    remove.type = 'button';
+    remove.className = 'btn btn-ghost btn-xs btn-square';
+    remove.setAttribute('aria-label', `Remove ${favorite.title}`);
+    remove.textContent = '×';
+    remove.addEventListener('click', () => removeFavorite(favorite.id));
+    row.append(details, remove);
+    list.append(row);
+  });
+  els.favoriteGroups.append(list);
+  els.favoriteCount.textContent = `${favorites.length} Saved`;
+  els.emptyFavorites.textContent = favorites.length
+    ? `No ${activeFavoriteGroup} chats saved yet.`
+    : 'No chats saved yet. Open an AI conversation and save the current page.';
+  els.emptyFavorites.classList.toggle('hidden', items.length > 0);
+  els.favoriteGroups.classList.toggle('hidden', items.length === 0);
+}
+
+async function saveCurrentFavorite() {
+  const tab = await activeTab();
+  if (!tab?.url || !/^https?:\/\//i.test(tab.url)) {
+    showFavoriteNotice('Open an AI chat webpage before saving.', 'warning');
+    return;
+  }
+  const group = favoriteGroup(tab.url);
+  activeFavoriteGroup = group;
+  const existing = favorites.find((favorite) => favorite.url === tab.url);
+  if (existing) {
+    existing.title = cleanFavoriteTitle(tab.title, group);
+    existing.savedAt = Date.now();
+    showFavoriteNotice('Updated the existing saved chat.', 'success');
+  } else {
+    favorites.push({ id: crypto.randomUUID(), title: cleanFavoriteTitle(tab.title, group), url: tab.url, group, savedAt: Date.now() });
+    showFavoriteNotice(`Saved to ${group}.`, 'success');
+  }
+  await persistFavorites();
+  renderFavorites();
 }
 
 function showMediaNotice(message, type = 'info') {
@@ -223,20 +359,6 @@ async function messageTab(tab, message) {
   }
 }
 
-async function detectSite() {
-  const tab = await activeTab();
-  if (!tab?.id || !/^https?:/.test(tab.url || '')) {
-    els.site.textContent = 'Open an AI chat';
-    return;
-  }
-  try {
-    const response = await messageTab(tab, { type: 'PROMPT_PILOT_DETECT' });
-    els.site.textContent = response?.site || new URL(tab.url).hostname;
-  } catch {
-    els.site.textContent = new URL(tab.url).hostname;
-  }
-}
-
 function setRunning(value) {
   running = value;
   els.start.disabled = value;
@@ -341,14 +463,17 @@ async function runQueue() {
 }
 
 async function restore() {
-  const saved = await chrome.storage.local.get(['prompts', 'separator', 'delay', 'autoSend']);
+  const saved = await chrome.storage.local.get(['prompts', 'separator', 'delay', 'autoSend', 'favorites']);
   els.prompts.value = saved.prompts || '';
   els.separator.value = saved.separator || 'blank';
   els.delay.value = String(closestDelayIndex(Math.min(600, Math.max(3, Number(saved.delay) || 6))));
   els.autoSend.checked = saved.autoSend ?? true;
+  favorites = Array.isArray(saved.favorites)
+    ? saved.favorites.map((favorite) => ({ ...favorite, group: favorite.group === 'ChatGPT' ? 'GPT' : favorite.group }))
+    : [];
   updateCount();
   updateDelayLabel();
-  detectSite();
+  renderFavorites();
 }
 
 function save() {
@@ -371,7 +496,9 @@ function save() {
 els.start.addEventListener('click', runQueue);
 els.stop.addEventListener('click', () => { stopped = true; els.status.textContent = 'Stopping…'; });
 els.queueTab.addEventListener('click', () => switchPanel('queue'));
+els.favoritesTab.addEventListener('click', () => switchPanel('favorites'));
 els.downloadsTab.addEventListener('click', () => switchPanel('downloads'));
+els.saveFavorite.addEventListener('click', saveCurrentFavorite);
 els.scanMedia.addEventListener('click', scanMedia);
 els.mediaType.addEventListener('change', renderMedia);
 els.toggleMedia.addEventListener('click', () => {
@@ -381,6 +508,4 @@ els.toggleMedia.addEventListener('click', () => {
   renderMedia();
 });
 els.downloadMedia.addEventListener('click', downloadSelectedMedia);
-chrome.tabs.onActivated.addListener(detectSite);
-chrome.tabs.onUpdated.addListener((_tabId, info) => { if (info.status === 'complete') detectSite(); });
 restore();

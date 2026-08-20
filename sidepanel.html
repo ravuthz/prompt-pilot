@@ -8,17 +8,23 @@
   </head>
   <body class="bg-base-200 text-base-content">
     <main class="mx-auto flex min-h-screen w-full max-w-2xl flex-col gap-3 p-3 sm:p-4">
-      <header class="flex items-center justify-between gap-3 px-1 pt-1">
-        <div>
-          <p class="text-xs font-semibold uppercase tracking-widest opacity-55">Bulk AI runner</p>
-          <h1 class="text-xl font-bold tracking-tight">Prompt Pilot</h1>
-        </div>
-        <span id="siteBadge" class="badge badge-soft badge-sm">Checking tab…</span>
-      </header>
-
-      <nav role="tablist" class="tabs tabs-box grid grid-cols-2">
-        <button id="queueTab" role="tab" class="tab tab-active">Prompt queue</button>
-        <button id="downloadsTab" role="tab" class="tab">Flow downloads</button>
+      <nav role="tablist" class="tabs tabs-box grid grid-cols-3">
+        <button id="queueTab" role="tab" class="tab tooltip tooltip-bottom tab-active" data-tip="Prompt Queue" title="Prompt Queue" aria-label="Prompt Queue">
+          <svg aria-hidden="true" viewBox="0 0 24 24" class="size-5 fill-none stroke-current" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M8 6h11M8 12h11M8 18h11" />
+            <path d="m3 6 1 1 2-2M3 12l1 1 2-2M3 18l1 1 2-2" />
+          </svg>
+        </button>
+        <button id="favoritesTab" role="tab" class="tab tooltip tooltip-bottom" data-tip="Favorites" title="Favorites" aria-label="Favorites">
+          <svg aria-hidden="true" viewBox="0 0 24 24" class="size-5 fill-none stroke-current" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.7l-1.1-1.1a5.5 5.5 0 0 0-7.8 7.8l1.1 1.1L12 21l7.8-7.5 1.1-1.1a5.5 5.5 0 0 0-.1-7.8Z" />
+          </svg>
+        </button>
+        <button id="downloadsTab" role="tab" class="tab tooltip tooltip-bottom" data-tip="Flow Download" title="Flow Download" aria-label="Flow Download">
+          <svg aria-hidden="true" viewBox="0 0 24 24" class="size-5 fill-none stroke-current" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14" />
+          </svg>
+        </button>
       </nav>
 
       <div id="queuePanel" class="flex flex-col gap-3">
@@ -78,6 +84,25 @@
       <section class="rounded-box border border-base-300 bg-base-100 p-3 text-xs leading-relaxed opacity-70">
         Keep the AI tab active while the queue runs. Review AI-site terms before automating high-volume prompts.
       </section>
+      </div>
+
+      <div id="favoritesPanel" class="hidden flex-col gap-3">
+        <section class="card card-border bg-base-100 shadow-sm">
+          <div class="card-body gap-3 p-4">
+            <div class="grid grid-cols-[7fr_3fr] gap-2">
+              <button id="saveFavoriteBtn" class="btn btn-primary btn-sm">Save current chat</button>
+              <div class="flex items-center justify-center rounded-field bg-base-200 px-2">
+                <span id="favoriteCount" class="badge badge-ghost badge-sm">0 Saved</span>
+              </div>
+            </div>
+            <div id="favoriteNotice" role="alert" class="alert alert-soft alert-info hidden py-2.5 text-sm"></div>
+            <nav id="favoriteTypeTabs" role="tablist" class="tabs tabs-border w-full overflow-x-auto"></nav>
+            <div id="favoriteGroups" class="flex max-h-[34rem] flex-col gap-3 overflow-y-auto"></div>
+            <div id="emptyFavorites" class="rounded-box border border-dashed border-base-300 p-6 text-center text-sm opacity-60">
+              No chats saved yet. Open an AI conversation and save the current page.
+            </div>
+          </div>
+        </section>
       </div>
 
       <div id="downloadsPanel" class="hidden flex-col gap-3">
