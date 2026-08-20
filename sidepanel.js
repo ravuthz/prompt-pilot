@@ -190,15 +190,11 @@ function renderFavorites() {
     const details = document.createElement('button');
     details.type = 'button';
     details.className = 'list-col-grow min-w-0 cursor-pointer text-left';
-    details.title = favorite.url;
     details.addEventListener('click', () => chrome.tabs.create({ url: favorite.url }));
     const title = document.createElement('p');
     title.className = 'truncate text-sm font-medium';
     title.textContent = favorite.title;
-    const url = document.createElement('p');
-    url.className = 'truncate text-xs opacity-50';
-    url.textContent = favorite.url;
-    details.append(title, url);
+    details.append(title);
     const remove = document.createElement('button');
     remove.type = 'button';
     remove.className = 'btn btn-ghost btn-xs btn-square';

@@ -6,9 +6,9 @@
     <title>Prompt Pilot</title>
     <link rel="stylesheet" href="styles.css" />
   </head>
-  <body class="bg-base-200 text-base-content">
-    <main class="mx-auto flex min-h-screen w-full max-w-2xl flex-col gap-3 p-3 sm:p-4">
-      <nav role="tablist" class="tabs tabs-box grid grid-cols-3">
+  <body class="h-screen overflow-hidden bg-base-200 text-base-content">
+    <main class="mx-auto flex h-screen w-full max-w-2xl flex-col gap-3 overflow-hidden p-3 sm:p-4">
+      <nav role="tablist" class="tabs tabs-box z-10 grid shrink-0 grid-cols-3">
         <button id="queueTab" role="tab" class="tab tooltip tooltip-bottom tab-active" data-tip="Prompt Queue" title="Prompt Queue" aria-label="Prompt Queue">
           <svg aria-hidden="true" viewBox="0 0 24 24" class="size-5 fill-none stroke-current" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
             <path d="M8 6h11M8 12h11M8 18h11" />
@@ -27,7 +27,7 @@
         </button>
       </nav>
 
-      <div id="queuePanel" class="flex flex-col gap-3">
+      <div id="queuePanel" class="prompt-scroll min-h-0 flex-1 flex-col gap-3 overflow-y-auto">
       <section class="card card-border bg-base-100 shadow-sm">
         <div class="card-body gap-3 p-4">
           <div class="flex items-center justify-between gap-3">
@@ -86,7 +86,7 @@
       </section>
       </div>
 
-      <div id="favoritesPanel" class="hidden flex-col gap-3">
+      <div id="favoritesPanel" class="prompt-scroll hidden min-h-0 flex-1 flex-col gap-3 overflow-y-auto">
         <section class="card card-border bg-base-100 shadow-sm">
           <div class="card-body gap-3 p-4">
             <div class="grid grid-cols-[7fr_3fr] gap-2">
@@ -105,7 +105,7 @@
         </section>
       </div>
 
-      <div id="downloadsPanel" class="hidden flex-col gap-3">
+      <div id="downloadsPanel" class="prompt-scroll hidden min-h-0 flex-1 flex-col gap-3 overflow-y-auto">
         <section class="card card-border bg-base-100 shadow-sm">
           <div class="card-body gap-3 p-4">
             <div class="flex items-start justify-between gap-3">
