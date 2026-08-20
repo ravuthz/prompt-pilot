@@ -4,6 +4,7 @@ const els = {
   delay: document.querySelector('#delay'),
   delayValue: document.querySelector('#delayValue'),
   autoSend: document.querySelector('#autoSend'),
+  waitForResponse: document.querySelector('#waitForResponse'),
   count: document.querySelector('#countBadge'),
   status: document.querySelector('#statusText'),
   progress: document.querySelector('#progress'),
@@ -363,9 +364,35 @@ function setRunning(value) {
   els.separator.disabled = value;
   els.delay.disabled = value;
   els.autoSend.disabled = value;
+  els.waitForResponse.disabled = value;
 }
 
 const wait = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
+
+async function waitForResponseCompletion(tab) {
+  const startedAt = Date.now();
+  const timeout = 30 * 60 * 1000;
+  let sawBusy = false;
+  let idleChecks = 0;
+
+  while (!stopped && Date.now() - startedAt < timeout) {
+    const state = await messageTab(tab, { type: 'PROMPT_PILOT_RESPONSE_STATE' });
+    if (state?.busy) {
+      sawBusy = true;
+      idleChecks = 0;
+    } else if (sawBusy) {
+      idleChecks += 1;
+      if (idleChecks >= 2) return;
+    } else if (Date.now() - startedAt >= 10000) {
+      return;
+    }
+    await wait(1000);
+  }
+
+  if (!stopped && Date.now() - startedAt >= timeout) {
+    throw new Error('Timed out waiting for the previous response after 30 minutes.');
+  }
+}
 
 function isGoogleFlow(tab) {
   try {
@@ -440,7 +467,14 @@ async function runQueue() {
         stopped = true;
         break;
       }
-      if (index < prompts.length - 1) await wait(delaySeconds() * 1000);
+      if (index < prompts.length - 1) {
+        if (els.waitForResponse.checked) {
+          els.status.textContent = `Waiting for response ${index + 1} to finish`;
+          await waitForResponseCompletion(tab);
+        } else {
+          await wait(delaySeconds() * 1000);
+        }
+      }
     }
 
     if (stopped) {
@@ -459,11 +493,12 @@ async function runQueue() {
 }
 
 async function restore() {
-  const saved = await chrome.storage.local.get(['prompts', 'separator', 'delay', 'autoSend', 'favorites']);
+  const saved = await chrome.storage.local.get(['prompts', 'separator', 'delay', 'autoSend', 'waitForResponse', 'favorites']);
   els.prompts.value = saved.prompts || '';
   els.separator.value = saved.separator || 'blank';
   els.delay.value = String(closestDelayIndex(Math.min(600, Math.max(3, Number(saved.delay) || 6))));
   els.autoSend.checked = saved.autoSend ?? true;
+  els.waitForResponse.checked = saved.waitForResponse ?? false;
   favorites = Array.isArray(saved.favorites)
     ? saved.favorites.map((favorite) => ({ ...favorite, group: favorite.group === 'ChatGPT' ? 'GPT' : favorite.group }))
     : [];
@@ -477,7 +512,8 @@ function save() {
     prompts: els.prompts.value,
     separator: els.separator.value,
     delay: String(delaySeconds()),
-    autoSend: els.autoSend.checked
+    autoSend: els.autoSend.checked,
+    waitForResponse: els.waitForResponse.checked
   });
   updateCount();
   updateDelayLabel();
@@ -488,6 +524,7 @@ function save() {
   els.separator.addEventListener(eventName, save);
   els.delay.addEventListener(eventName, save);
   els.autoSend.addEventListener(eventName, save);
+  els.waitForResponse.addEventListener(eventName, save);
 });
 els.start.addEventListener('click', runQueue);
 els.stop.addEventListener('click', () => { stopped = true; els.status.textContent = 'Stopping…'; });

@@ -231,6 +231,22 @@
     return [...found.values()];
   }
 
+  function responseIsBusy() {
+    const selectors = [
+      'button[data-testid*="stop" i]',
+      'button[aria-label*="stop" i]',
+      'button[title*="stop" i]',
+      'button[aria-label*="cancel response" i]',
+      'button[aria-label*="cancel generation" i]'
+    ];
+    if (findVisible(selectors)) return true;
+    return [...document.querySelectorAll('button')].some((button) => {
+      if (!visible(button)) return false;
+      const iconText = button.querySelector('.google-symbols')?.textContent?.trim().toLowerCase();
+      return iconText === 'stop' || iconText === 'cancel';
+    });
+  }
+
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     if (message.type === 'PROMPT_PILOT_DETECT') {
       sendResponse({ site: adapter().name });
@@ -270,6 +286,10 @@
     }
     if (message.type === 'PROMPT_PILOT_SCAN_MEDIA') {
       sendResponse({ media: scanMedia() });
+      return;
+    }
+    if (message.type === 'PROMPT_PILOT_RESPONSE_STATE') {
+      sendResponse({ busy: responseIsBusy() });
       return;
     }
     if (message.type === 'PROMPT_PILOT_DOWNLOAD_BLOB') {
