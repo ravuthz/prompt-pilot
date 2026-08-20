@@ -11,6 +11,7 @@ const els = {
   progressLabel: document.querySelector('#progressLabel'),
   notice: document.querySelector('#notice'),
   start: document.querySelector('#startBtn'),
+  pause: document.querySelector('#pauseBtn'),
   stop: document.querySelector('#stopBtn')
 };
 
@@ -39,6 +40,7 @@ Object.assign(els, {
 
 let stopped = false;
 let running = false;
+let paused = false;
 let discoveredMedia = [];
 let favorites = [];
 let activeFavoriteGroup = 'GPT';
@@ -358,7 +360,10 @@ async function messageTab(tab, message) {
 
 function setRunning(value) {
   running = value;
+  if (!value) paused = false;
   els.start.disabled = value;
+  els.pause.disabled = !value;
+  els.pause.textContent = 'Pause';
   els.stop.disabled = !value;
   els.prompts.disabled = value;
   els.separator.disabled = value;
@@ -369,13 +374,30 @@ function setRunning(value) {
 
 const wait = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
 
+async function waitWhilePaused() {
+  while (paused && !stopped) await wait(200);
+}
+
+async function waitInterruptibly(milliseconds) {
+  let remaining = milliseconds;
+  while (remaining > 0 && !stopped) {
+    await waitWhilePaused();
+    if (stopped) return;
+    const slice = Math.min(250, remaining);
+    await wait(slice);
+    remaining -= slice;
+  }
+}
+
 async function waitForResponseCompletion(tab) {
-  const startedAt = Date.now();
   const timeout = 30 * 60 * 1000;
+  let activeElapsed = 0;
   let sawBusy = false;
   let idleChecks = 0;
 
-  while (!stopped && Date.now() - startedAt < timeout) {
+  while (!stopped && activeElapsed < timeout) {
+    await waitWhilePaused();
+    if (stopped) return;
     const state = await messageTab(tab, { type: 'PROMPT_PILOT_RESPONSE_STATE' });
     if (state?.busy) {
       sawBusy = true;
@@ -383,13 +405,14 @@ async function waitForResponseCompletion(tab) {
     } else if (sawBusy) {
       idleChecks += 1;
       if (idleChecks >= 2) return;
-    } else if (Date.now() - startedAt >= 10000) {
+    } else if (activeElapsed >= 10000) {
       return;
     }
-    await wait(1000);
+    await waitInterruptibly(1000);
+    activeElapsed += 1000;
   }
 
-  if (!stopped && Date.now() - startedAt >= timeout) {
+  if (!stopped && activeElapsed >= timeout) {
     throw new Error('Timed out waiting for the previous response after 30 minutes.');
   }
 }
@@ -456,6 +479,8 @@ async function runQueue() {
   try {
     for (let index = 0; index < prompts.length; index += 1) {
       if (stopped) break;
+      await waitWhilePaused();
+      if (stopped) break;
       els.status.textContent = `Sending prompt ${index + 1} of ${prompts.length}`;
       els.progressLabel.textContent = `${index} / ${prompts.length}`;
       const result = await sendPrompt(tab, prompts[index]);
@@ -472,7 +497,7 @@ async function runQueue() {
           els.status.textContent = `Waiting for response ${index + 1} to finish`;
           await waitForResponseCompletion(tab);
         } else {
-          await wait(delaySeconds() * 1000);
+          await waitInterruptibly(delaySeconds() * 1000);
         }
       }
     }
@@ -527,6 +552,11 @@ function save() {
   els.waitForResponse.addEventListener(eventName, save);
 });
 els.start.addEventListener('click', runQueue);
+els.pause.addEventListener('click', () => {
+  paused = !paused;
+  els.pause.textContent = paused ? 'Resume' : 'Pause';
+  els.status.textContent = paused ? 'Queue paused' : 'Queue resumed';
+});
 els.stop.addEventListener('click', () => { stopped = true; els.status.textContent = 'Stopping…'; });
 els.queueTab.addEventListener('click', () => switchPanel('queue'));
 els.favoritesTab.addEventListener('click', () => switchPanel('favorites'));
