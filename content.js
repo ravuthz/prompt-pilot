@@ -231,6 +231,88 @@
     return [...found.values()];
   }
 
+  const delay = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
+
+  function menuText(element) {
+    return (element?.innerText || element?.textContent || '').replace(/\s+/g, ' ').trim();
+  }
+
+  function visibleMoreButton(root) {
+    return [...root.querySelectorAll('button')].find((button) => {
+      if (!visible(button)) return false;
+      const label = `${button.getAttribute('aria-label') || ''} ${button.getAttribute('title') || ''} ${button.querySelector('.google-symbols')?.textContent || ''} ${menuText(button)}`.toLowerCase();
+      return /more_vert|more_horiz|more actions|options|(^|\s)more(\s|$)|⋮/.test(label);
+    });
+  }
+
+  function allMoreButtons() {
+    return [...document.querySelectorAll('button')].filter((button) => {
+      const icon = button.querySelector('.google-symbols')?.textContent?.trim().toLowerCase() || '';
+      const label = `${button.getAttribute('aria-label') || ''} ${button.getAttribute('title') || ''} ${icon} ${menuText(button)}`.toLowerCase();
+      return visible(button) && /more_vert|more_horiz|more actions|options|(^|\s)more(\s|$)|⋮/.test(label);
+    });
+  }
+
+  function visibleMenuItem(predicate) {
+    return [...document.querySelectorAll('[role="menuitem"], [data-radix-collection-item], button')]
+      .find((element) => visible(element) && !element.hasAttribute('data-disabled') && element.getAttribute('aria-disabled') !== 'true' && predicate(menuText(element)));
+  }
+
+  async function upscaleFlowVideos() {
+    if (adapter().name !== 'Google Flow') return { ok: false, error: '1080p upscaling is available only on Google Flow.' };
+    const videos = [...document.querySelectorAll('video')].filter(visible);
+    let completed = 0;
+    const errors = [];
+    const attempted = new Set();
+    const globalMoreButtons = allMoreButtons();
+
+    const processMoreButton = async (moreButton, index) => {
+      if (!moreButton || attempted.has(moreButton)) return false;
+      attempted.add(moreButton);
+      moreButton.click();
+      await delay(250);
+      const downloadItem = visibleMenuItem((text) => /^download$/i.test(text));
+      if (!downloadItem) {
+        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+        return false;
+      }
+      downloadItem.click();
+      await delay(250);
+      const upscaleItem = visibleMenuItem((text) => /^1080p\b/i.test(text) && /upscaled/i.test(text));
+      if (!upscaleItem) {
+        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+        return false;
+      }
+      upscaleItem.click();
+      await delay(400);
+      return true;
+    };
+
+    for (let index = 0; index < videos.length; index += 1) {
+      const video = videos[index];
+      video.scrollIntoView({ block: 'center', behavior: 'auto' });
+      let moreButton = null;
+      let ancestor = video;
+      for (let depth = 0; depth < 8 && ancestor; depth += 1, ancestor = ancestor.parentElement) {
+        ['mouseover', 'mouseenter', 'mousemove'].forEach((type) => ancestor.dispatchEvent(new MouseEvent(type, { bubbles: true, composed: true, clientX: video.getBoundingClientRect().right - 8, clientY: video.getBoundingClientRect().top + 8 })));
+        await delay(80);
+        moreButton = visibleMoreButton(ancestor);
+        if (moreButton) break;
+      }
+      const candidates = [moreButton, ...globalMoreButtons, ...allMoreButtons()].filter(Boolean);
+      let success = false;
+      for (const candidate of candidates) {
+        if (await processMoreButton(candidate, index)) {
+          success = true;
+          completed += 1;
+          break;
+        }
+      }
+      if (!success) errors.push(`video ${index + 1}: More → Download → 1080p Upscaled was not completed`);
+    }
+    return { ok: videos.length > 0, total: videos.length, completed, errors, error: videos.length ? undefined : 'No visible videos found. Scroll through the Flow gallery first.' };
+  }
+
   function responseIsBusy() {
     const selectors = [
       'button[data-testid*="stop" i]',
@@ -287,6 +369,10 @@
     if (message.type === 'PROMPT_PILOT_SCAN_MEDIA') {
       sendResponse({ media: scanMedia() });
       return;
+    }
+    if (message.type === 'PROMPT_PILOT_UPSCALE_FLOW') {
+      upscaleFlowVideos().then(sendResponse);
+      return true;
     }
     if (message.type === 'PROMPT_PILOT_RESPONSE_STATE') {
       sendResponse({ busy: responseIsBusy() });

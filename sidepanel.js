@@ -35,6 +35,7 @@ Object.assign(els, {
   mediaNotice: document.querySelector('#mediaNotice'),
   scanMedia: document.querySelector('#scanMediaBtn'),
   toggleMedia: document.querySelector('#toggleMediaBtn'),
+  upscaleMedia: document.querySelector('#upscaleMediaBtn'),
   downloadMedia: document.querySelector('#downloadMediaBtn')
 });
 
@@ -281,8 +282,29 @@ function updateMediaActions() {
   const selected = media.filter((item) => item.selected).length;
   els.toggleMedia.disabled = media.length === 0;
   els.downloadMedia.disabled = selected === 0;
+  els.upscaleMedia.disabled = discoveredMedia.filter((item) => item.type === 'video').length === 0;
   els.downloadMedia.textContent = selected ? `Download ${selected}` : 'Download selected';
   els.toggleMedia.textContent = selected === media.length && media.length ? 'Select none' : 'Select all';
+}
+
+async function upscaleFlowMedia() {
+  const tab = await activeTab();
+  if (!isGoogleFlow(tab)) {
+    showMediaNotice('Open a Google Flow project in the active tab first.', 'warning');
+    return;
+  }
+  els.upscaleMedia.disabled = true;
+  els.upscaleMedia.textContent = 'Upscaling…';
+  try {
+    const result = await messageTab(tab, { type: 'PROMPT_PILOT_UPSCALE_FLOW' });
+    if (!result?.ok) throw new Error(result?.error || 'Flow could not upscale the videos.');
+    showMediaNotice(`Selected 1080p Upscaled for ${result.completed} of ${result.total} video${result.total === 1 ? '' : 's'}.`, result.completed === result.total ? 'success' : 'warning');
+  } catch (error) {
+    showMediaNotice(error.message, 'error');
+  } finally {
+    els.upscaleMedia.textContent = 'Upscale 1080p';
+    updateMediaActions();
+  }
 }
 
 async function scanMedia() {
@@ -570,5 +592,6 @@ els.toggleMedia.addEventListener('click', () => {
   media.forEach((item) => { item.selected = shouldSelect; });
   renderMedia();
 });
+els.upscaleMedia.addEventListener('click', upscaleFlowMedia);
 els.downloadMedia.addEventListener('click', downloadSelectedMedia);
 restore();
