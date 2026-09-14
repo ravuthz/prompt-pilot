@@ -45,7 +45,7 @@ let paused = false;
 let discoveredMedia = [];
 let favorites = [];
 let activeFavoriteGroup = 'GPT';
-const FAVORITE_GROUP_ORDER = ['GPT', 'Gemini', 'Claude', 'Grok'];
+const FAVORITE_GROUP_ORDER = ['GPT', 'Gemini', 'Claude', 'Grok', 'Google Flow', 'Flow Music'];
 const DELAY_VALUES = [
   ...Array.from({ length: 20 }, (_, index) => (index + 1) * 3),
   ...Array.from({ length: 18 }, (_, index) => 90 + index * 30)
@@ -123,19 +123,20 @@ function switchPanel(panel) {
 
 function favoriteGroup(url) {
   const parsed = new URL(url);
-  const host = parsed.hostname.replace(/^www\./, '');
+  const host = parsed.hostname.replace(/^www\./, '').toLowerCase();
   if (host === 'chatgpt.com' || host.endsWith('.openai.com')) return 'GPT';
   if (host === 'gemini.google.com') return 'Gemini';
   if (host === 'claude.ai') return 'Claude';
-  if (host === 'grok.com' || (host === 'x.com' && parsed.pathname.startsWith('/i/grok'))) return 'Grok';
+  if (host === 'grok.com' || ((host === 'x.com' || host === 'twitter.com') && parsed.pathname.startsWith('/i/grok'))) return 'Grok';
+  if (host === 'flowmusic.app' || host.endsWith('.flowmusic.app')) return 'Flow Music';
   if (host === 'perplexity.ai') return 'Perplexity';
   if (host === 'copilot.microsoft.com') return 'Microsoft Copilot';
-  if (host === 'labs.google' && parsed.pathname.includes('/fx/tools/flow')) return 'Google Flow';
+  if (host === 'flow.google' || host === 'flow.google.com' || host.endsWith('.flow.google') || host.endsWith('.flow.google.com') || (host === 'labs.google' && parsed.pathname.includes('/fx/tools/flow'))) return 'Google Flow';
   return host;
 }
 
 function cleanFavoriteTitle(title, group) {
-  const cleaned = (title || '').replace(/\s+[-–|]\s+(ChatGPT|Gemini|Claude|Grok|Perplexity).*$/i, '').trim();
+  const cleaned = (title || '').replace(/\s+[-–|]\s+(ChatGPT|Gemini|Claude|Grok|Perplexity|Flow Music|Google Flow).*$/i, '').trim();
   return cleaned || `${group} chat`;
 }
 
@@ -266,7 +267,8 @@ function renderMedia() {
     title.textContent = item.name;
     const meta = document.createElement('p');
     meta.className = 'text-xs opacity-55';
-    meta.textContent = `${item.type}${item.width ? ` · ${item.width}×${item.height}` : ''}`;
+    const dimensions = item.width && item.height ? ` · ${item.width}×${item.height}` : '';
+    meta.textContent = `${item.type}${dimensions}`;
     details.append(title, meta);
     row.append(checkbox, details);
     els.mediaList.append(row);
@@ -309,8 +311,8 @@ async function upscaleFlowMedia() {
 
 async function scanMedia() {
   const tab = await activeTab();
-  if (!isGoogleFlow(tab)) {
-    showMediaNotice('Open a Google Flow project in the active tab first.', 'warning');
+  if (!tab?.url || isRestrictedUrl(tab.url)) {
+    showMediaNotice('Open Flow Music or Google Flow in the active tab first.', 'warning');
     return;
   }
   els.scanMedia.disabled = true;
@@ -319,7 +321,7 @@ async function scanMedia() {
     const response = await messageTab(tab, { type: 'PROMPT_PILOT_SCAN_MEDIA' });
     discoveredMedia = (response?.media || []).map((item) => ({ ...item, selected: true }));
     renderMedia();
-    showMediaNotice(discoveredMedia.length ? `Found ${discoveredMedia.length} loaded media file${discoveredMedia.length === 1 ? '' : 's'}.` : 'No downloadable media was found. Scroll through the gallery and scan again.', discoveredMedia.length ? 'success' : 'info');
+    showMediaNotice(discoveredMedia.length ? `Found ${discoveredMedia.length} loaded media file${discoveredMedia.length === 1 ? '' : 's'}.` : 'No downloadable media was found. Scroll through the page or project and scan again.', discoveredMedia.length ? 'success' : 'info');
   } catch (error) {
     showMediaNotice(error.message, 'error');
   } finally {
@@ -441,8 +443,21 @@ async function waitForResponseCompletion(tab) {
 
 function isGoogleFlow(tab) {
   try {
-    const url = new URL(tab.url);
-    return url.hostname === 'labs.google' && /\/fx\/tools\/flow/i.test(url.pathname);
+    const url = new URL(tab?.url || '');
+    const host = url.hostname.replace(/^www\./, '').toLowerCase();
+    if (host === 'flow.google' || host === 'flow.google.com' || host.endsWith('.flow.google') || host.endsWith('.flow.google.com')) return true;
+    if (host === 'labs.google' && /\/fx\/tools\/flow/i.test(url.pathname)) return true;
+    return false;
+  } catch {
+    return false;
+  }
+}
+
+function isFlowMusic(tab) {
+  try {
+    const url = new URL(tab?.url || '');
+    const host = url.hostname.replace(/^www\./, '');
+    return host === 'flowmusic.app' || host.endsWith('.flowmusic.app');
   } catch {
     return false;
   }

@@ -10,7 +10,11 @@ A Chrome Manifest V3 extension that opens a right-side panel and sends a queue o
 4. Choose **Load unpacked** and select this folder.
 5. Open an AI chat, click the Prompt Pilot toolbar icon, paste prompts, and start the queue.
 
-Built-in adapters cover ChatGPT, Claude, Gemini, Perplexity, and Microsoft Copilot. A generic adapter also looks for common message boxes and send buttons on other sites.
+Built-in adapters cover ChatGPT, Claude, Gemini, Perplexity, Microsoft Copilot, Google Flow, and Flow Music. A generic adapter also looks for common message boxes and send buttons on other sites.
+
+## Media Downloads
+
+Prompt Pilot includes dedicated media extraction and downloading support for **Flow Music** (audio songs in `.m4a` / `.wav`, cover art, and videos) and **Google Flow** (1080p upscaling and project media).
 
 ## Notes
 
