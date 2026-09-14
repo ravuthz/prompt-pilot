@@ -17,11 +17,25 @@ const els = {
 
 Object.assign(els, {
   queueTab: document.querySelector('#queueTab'),
+  sunoTab: document.querySelector('#sunoTab'),
   favoritesTab: document.querySelector('#favoritesTab'),
   downloadsTab: document.querySelector('#downloadsTab'),
   queuePanel: document.querySelector('#queuePanel'),
+  sunoPanel: document.querySelector('#sunoPanel'),
   favoritesPanel: document.querySelector('#favoritesPanel'),
   downloadsPanel: document.querySelector('#downloadsPanel'),
+  sunoPrompts: document.querySelector('#sunoPrompts'),
+  sunoCountBadge: document.querySelector('#sunoCountBadge'),
+  sunoDelay: document.querySelector('#sunoDelay'),
+  sunoDelayValue: document.querySelector('#sunoDelayValue'),
+  sunoAutoCreate: document.querySelector('#sunoAutoCreate'),
+  sunoStatusText: document.querySelector('#sunoStatusText'),
+  sunoProgress: document.querySelector('#sunoProgress'),
+  sunoProgressLabel: document.querySelector('#sunoProgressLabel'),
+  sunoNotice: document.querySelector('#sunoNotice'),
+  sunoStartBtn: document.querySelector('#sunoStartBtn'),
+  sunoPauseBtn: document.querySelector('#sunoPauseBtn'),
+  sunoStopBtn: document.querySelector('#sunoStopBtn'),
   favoriteCount: document.querySelector('#favoriteCount'),
   favoriteTypeTabs: document.querySelector('#favoriteTypeTabs'),
   favoriteGroups: document.querySelector('#favoriteGroups'),
@@ -45,7 +59,7 @@ let paused = false;
 let discoveredMedia = [];
 let favorites = [];
 let activeFavoriteGroup = 'GPT';
-const FAVORITE_GROUP_ORDER = ['GPT', 'Gemini', 'Claude', 'Grok', 'Google Flow', 'Flow Music'];
+const FAVORITE_GROUP_ORDER = ['GPT', 'Gemini', 'Claude', 'Grok', 'Google Flow', 'Flow Music', 'Suno'];
 const DELAY_VALUES = [
   ...Array.from({ length: 20 }, (_, index) => (index + 1) * 3),
   ...Array.from({ length: 18 }, (_, index) => 90 + index * 30)
@@ -107,16 +121,20 @@ function hideNotice() {
 }
 
 function switchPanel(panel) {
+  const suno = panel === 'suno';
   const favorite = panel === 'favorites';
   const downloads = panel === 'downloads';
-  const queue = !favorite && !downloads;
+  const queue = !suno && !favorite && !downloads;
   els.queuePanel.classList.toggle('hidden', !queue);
   els.queuePanel.classList.toggle('flex', queue);
+  els.sunoPanel.classList.toggle('hidden', !suno);
+  els.sunoPanel.classList.toggle('flex', suno);
   els.favoritesPanel.classList.toggle('hidden', !favorite);
   els.favoritesPanel.classList.toggle('flex', favorite);
   els.downloadsPanel.classList.toggle('hidden', !downloads);
   els.downloadsPanel.classList.toggle('flex', downloads);
   els.queueTab.classList.toggle('tab-active', queue);
+  els.sunoTab.classList.toggle('tab-active', suno);
   els.favoritesTab.classList.toggle('tab-active', favorite);
   els.downloadsTab.classList.toggle('tab-active', downloads);
 }
@@ -132,11 +150,12 @@ function favoriteGroup(url) {
   if (host === 'perplexity.ai') return 'Perplexity';
   if (host === 'copilot.microsoft.com') return 'Microsoft Copilot';
   if (host === 'flow.google' || host === 'flow.google.com' || host.endsWith('.flow.google') || host.endsWith('.flow.google.com') || (host === 'labs.google' && parsed.pathname.includes('/fx/tools/flow'))) return 'Google Flow';
+  if (host === 'suno.com' || host === 'suno.ai' || host.endsWith('.suno.com') || host.endsWith('.suno.ai')) return 'Suno';
   return host;
 }
 
 function cleanFavoriteTitle(title, group) {
-  const cleaned = (title || '').replace(/\s+[-–|]\s+(ChatGPT|Gemini|Claude|Grok|Perplexity|Flow Music|Google Flow).*$/i, '').trim();
+  const cleaned = (title || '').replace(/\s+[-–|]\s+(ChatGPT|Gemini|Claude|Grok|Perplexity|Flow Music|Google Flow|Suno).*$/i, '').trim();
   return cleaned || `${group} chat`;
 }
 
@@ -365,16 +384,31 @@ function isRestrictedUrl(url = '') {
 }
 
 async function messageTab(tab, message) {
-  if (!tab?.id || isRestrictedUrl(tab.url)) {
+  let targetTab = tab;
+  let url = targetTab?.url || targetTab?.pendingUrl || '';
+
+  if (!targetTab?.id || isRestrictedUrl(url)) {
+    if (targetTab?.id) {
+      try {
+        const refreshed = await chrome.tabs.get(targetTab.id);
+        if (refreshed) {
+          targetTab = refreshed;
+          url = targetTab.url || targetTab.pendingUrl || '';
+        }
+      } catch {}
+    }
+  }
+
+  if (!targetTab?.id || isRestrictedUrl(url)) {
     throw new Error('Chrome internal pages cannot receive prompts. Open a web-based AI chat first.');
   }
 
   try {
-    return await chrome.tabs.sendMessage(tab.id, message);
+    return await chrome.tabs.sendMessage(targetTab.id, message);
   } catch (firstError) {
     try {
-      await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ['content.js'] });
-      return await chrome.tabs.sendMessage(tab.id, message);
+      await chrome.scripting.executeScript({ target: { tabId: targetTab.id }, files: ['content.js'] });
+      return await chrome.tabs.sendMessage(targetTab.id, message);
     } catch (injectionError) {
       const detail = injectionError?.message || firstError?.message || 'Unknown connection error';
       throw new Error(`Could not connect to this page: ${detail}`);
@@ -554,8 +588,239 @@ async function runQueue() {
   }
 }
 
+let sunoStopped = false;
+let sunoRunning = false;
+let sunoPaused = false;
+
+function sunoDelaySeconds() {
+  return DELAY_VALUES[Number(els.sunoDelay.value)] || 5;
+}
+
+function updateSunoDelayLabel() {
+  els.sunoDelayValue.textContent = formatDelay(sunoDelaySeconds());
+}
+
+function showSunoNotice(message, type = 'info') {
+  const colorClass = {
+    info: 'alert-info',
+    success: 'alert-success',
+    warning: 'alert-warning',
+    error: 'alert-error'
+  }[type] || 'alert-info';
+  els.sunoNotice.className = `alert alert-soft ${colorClass} py-2.5 text-sm`;
+  els.sunoNotice.textContent = message;
+}
+
+function hideSunoNotice() {
+  els.sunoNotice.classList.add('hidden');
+}
+
+function parseSongMetadata(text) {
+  let styles = '';
+  let gender = '';
+  let title = '';
+
+  const tagRegex = /@(styles?|gender|title|vocals?|voice|name)\s*:\s*(?:'([^']*)'|"([^"]*)"|((?:(?!@(styles?|gender|title|vocals?|voice|name)\b)[^\r\n])+))/gi;
+
+  let match;
+  while ((match = tagRegex.exec(text)) !== null) {
+    const key = match[1].toLowerCase();
+    let val = match[2] ?? match[3] ?? match[4] ?? '';
+    val = val.replace(/[\s,;]+$/, '').trim();
+
+    if (key === 'style' || key === 'styles') {
+      styles = val;
+    } else if (key === 'gender' || key === 'vocal' || key === 'vocals' || key === 'voice') {
+      gender = val;
+    } else if (key === 'title' || key === 'name') {
+      title = val;
+    }
+  }
+
+  const rawLyrics = text.replace(tagRegex, '');
+  const lines = rawLyrics.split(/\r?\n/);
+  const cleanedLines = [];
+  for (const line of lines) {
+    if (/^[\s,;]*$/.test(line)) {
+      cleanedLines.push('');
+    } else {
+      cleanedLines.push(line.trimEnd());
+    }
+  }
+  const lyrics = cleanedLines.join('\n').replace(/\n{3,}/g, '\n\n').trim();
+
+  return { styles, gender, title, lyrics };
+}
+
+function parseSunoSongs() {
+  const text = els.sunoPrompts.value.trim();
+  if (!text) return [];
+  const chunks = text
+    .split(/(?:^|\r?\n)\s*---+\s*(?:\r?\n|$)/)
+    .map((c) => c.trim())
+    .filter(Boolean);
+  return chunks.map(parseSongMetadata);
+}
+
+function updateSunoCount() {
+  const count = parseSunoSongs().length;
+  els.sunoCountBadge.textContent = `${count} song${count === 1 ? '' : 's'}`;
+}
+
+function setSunoRunning(value) {
+  sunoRunning = value;
+  if (!value) sunoPaused = false;
+  els.sunoStartBtn.disabled = value;
+  els.sunoPauseBtn.disabled = !value;
+  els.sunoPauseBtn.textContent = 'Pause';
+  els.sunoStopBtn.disabled = !value;
+  els.sunoPrompts.disabled = value;
+  els.sunoDelay.disabled = value;
+  els.sunoAutoCreate.disabled = value;
+}
+
+async function waitWhileSunoPaused() {
+  while (sunoPaused && !sunoStopped) await wait(200);
+}
+
+async function waitSunoInterruptibly(milliseconds) {
+  const interval = 100;
+  let remaining = milliseconds;
+  while (remaining > 0) {
+    if (sunoStopped) return false;
+    await waitWhileSunoPaused();
+    if (sunoStopped) return false;
+    const slice = Math.min(remaining, interval);
+    await wait(slice);
+    remaining -= slice;
+  }
+  return !sunoStopped;
+}
+
+async function waitForTabLoaded(tabId, timeoutMs = 30000) {
+  try {
+    const tab = await chrome.tabs.get(tabId);
+    if (tab?.status === 'complete' && /^https?:\/\//i.test(tab.url || '')) {
+      return tab;
+    }
+  } catch {}
+
+  return new Promise((resolve) => {
+    let resolved = false;
+    const timer = setTimeout(async () => {
+      if (!resolved) {
+        resolved = true;
+        chrome.tabs.onUpdated.removeListener(listener);
+        const finalTab = await chrome.tabs.get(tabId).catch(() => null);
+        resolve(finalTab);
+      }
+    }, timeoutMs);
+
+    async function listener(updatedTabId, changeInfo, tab) {
+      if (updatedTabId === tabId && changeInfo.status === 'complete') {
+        if (!resolved) {
+          resolved = true;
+          chrome.tabs.onUpdated.removeListener(listener);
+          clearTimeout(timer);
+          const finalTab = await chrome.tabs.get(tabId).catch(() => tab);
+          resolve(finalTab);
+        }
+      }
+    }
+    chrome.tabs.onUpdated.addListener(listener);
+  });
+}
+
+async function runSunoQueue() {
+  const songs = parseSunoSongs();
+  if (!songs.length) {
+    showSunoNotice('Enter at least one Suno song separated by ---.', 'warning');
+    return;
+  }
+
+  sunoStopped = false;
+  sunoPaused = false;
+  setSunoRunning(true);
+  hideSunoNotice();
+
+  els.sunoProgress.max = songs.length;
+  els.sunoProgress.value = 0;
+  els.sunoProgressLabel.textContent = `0 / ${songs.length}`;
+  els.sunoStatusText.textContent = `Starting ${songs.length} Suno song${songs.length === 1 ? '' : 's'}…`;
+
+  let completedCount = 0;
+
+  try {
+    for (let index = 0; index < songs.length; index += 1) {
+      if (sunoStopped) break;
+      await waitWhileSunoPaused();
+      if (sunoStopped) break;
+
+      const song = songs[index];
+      const songLabel = song.title ? `"${song.title}"` : `Song ${index + 1}`;
+      els.sunoStatusText.textContent = `Opening new tab for ${songLabel} (${index + 1}/${songs.length})…`;
+
+      const newTab = await chrome.tabs.create({
+        url: 'https://suno.com/create',
+        active: true
+      });
+
+      els.sunoStatusText.textContent = `Loading Suno for ${songLabel}…`;
+      const loadedTab = await waitForTabLoaded(newTab.id);
+      const targetTab = loadedTab || await chrome.tabs.get(newTab.id).catch(() => newTab);
+
+      await wait(2000);
+      if (sunoStopped) break;
+      await waitWhileSunoPaused();
+      if (sunoStopped) break;
+
+      els.sunoStatusText.textContent = `Populating fields for ${songLabel}…`;
+      const autoCreate = els.sunoAutoCreate.checked;
+
+      const result = await messageTab(targetTab, {
+        type: 'PROMPT_PILOT_CREATE_SUNO',
+        song,
+        autoCreate
+      });
+      if (!result?.ok) {
+        throw new Error(`Failed on ${songLabel}: ${result?.error || 'Unknown error'}`);
+      }
+
+      completedCount += 1;
+      els.sunoProgress.value = completedCount;
+      els.sunoProgressLabel.textContent = `${completedCount} / ${songs.length}`;
+
+      const actionDesc = result.created ? 'Created' : 'Populated';
+      els.sunoStatusText.textContent = `${actionDesc} ${songLabel} (${completedCount}/${songs.length})`;
+
+      if (index < songs.length - 1) {
+        const delaySec = sunoDelaySeconds();
+        els.sunoStatusText.textContent = `Waiting ${formatDelay(delaySec)} before next tab…`;
+        const ok = await waitSunoInterruptibly(delaySec * 1000);
+        if (!ok) break;
+      }
+    }
+
+    if (sunoStopped) {
+      els.sunoStatusText.textContent = `Stopped at ${completedCount} of ${songs.length}`;
+      showSunoNotice(`Queue stopped after ${completedCount} song${completedCount === 1 ? '' : 's'}.`, 'warning');
+    } else {
+      els.sunoStatusText.textContent = `Completed ${completedCount} of ${songs.length}`;
+      showSunoNotice(`Successfully processed ${completedCount} Suno song${completedCount === 1 ? '' : 's'} across new tabs!`, 'success');
+    }
+  } catch (error) {
+    els.sunoStatusText.textContent = 'Queue paused on error';
+    showSunoNotice(`${error.message} Ensure you are logged into suno.com and try again.`, 'error');
+  } finally {
+    setSunoRunning(false);
+  }
+}
+
 async function restore() {
-  const saved = await chrome.storage.local.get(['prompts', 'separator', 'delay', 'autoSend', 'waitForResponse', 'favorites']);
+  const saved = await chrome.storage.local.get([
+    'prompts', 'separator', 'delay', 'autoSend', 'waitForResponse', 'favorites',
+    'sunoPrompts', 'sunoDelay', 'sunoAutoCreate'
+  ]);
   els.prompts.value = saved.prompts || '';
   els.separator.value = saved.separator || 'blank';
   els.delay.value = String(closestDelayIndex(Math.min(600, Math.max(3, Number(saved.delay) || 6))));
@@ -564,8 +829,13 @@ async function restore() {
   favorites = Array.isArray(saved.favorites)
     ? saved.favorites.map((favorite) => ({ ...favorite, group: favorite.group === 'ChatGPT' ? 'GPT' : favorite.group }))
     : [];
+  els.sunoPrompts.value = saved.sunoPrompts || '';
+  els.sunoDelay.value = String(closestDelayIndex(Math.min(600, Math.max(3, Number(saved.sunoDelay) || 6))));
+  els.sunoAutoCreate.checked = saved.sunoAutoCreate ?? true;
   updateCount();
   updateDelayLabel();
+  updateSunoCount();
+  updateSunoDelayLabel();
   renderFavorites();
 }
 
@@ -575,18 +845,25 @@ function save() {
     separator: els.separator.value,
     delay: String(delaySeconds()),
     autoSend: els.autoSend.checked,
-    waitForResponse: els.waitForResponse.checked
+    waitForResponse: els.waitForResponse.checked,
+    sunoPrompts: els.sunoPrompts.value,
+    sunoDelay: String(sunoDelaySeconds()),
+    sunoAutoCreate: els.sunoAutoCreate.checked
   });
   updateCount();
   updateDelayLabel();
+  updateSunoCount();
+  updateSunoDelayLabel();
 }
-
 ['input', 'change'].forEach((eventName) => {
   els.prompts.addEventListener(eventName, save);
   els.separator.addEventListener(eventName, save);
   els.delay.addEventListener(eventName, save);
   els.autoSend.addEventListener(eventName, save);
   els.waitForResponse.addEventListener(eventName, save);
+  els.sunoPrompts.addEventListener(eventName, save);
+  els.sunoDelay.addEventListener(eventName, save);
+  els.sunoAutoCreate.addEventListener(eventName, save);
 });
 els.start.addEventListener('click', runQueue);
 els.pause.addEventListener('click', () => {
@@ -595,6 +872,14 @@ els.pause.addEventListener('click', () => {
   els.status.textContent = paused ? 'Queue paused' : 'Queue resumed';
 });
 els.stop.addEventListener('click', () => { stopped = true; els.status.textContent = 'Stopping…'; });
+els.sunoStartBtn.addEventListener('click', runSunoQueue);
+els.sunoPauseBtn.addEventListener('click', () => {
+  sunoPaused = !sunoPaused;
+  els.sunoPauseBtn.textContent = sunoPaused ? 'Resume' : 'Pause';
+  els.sunoStatusText.textContent = sunoPaused ? 'Queue paused' : 'Queue resumed';
+});
+els.sunoStopBtn.addEventListener('click', () => { sunoStopped = true; els.sunoStatusText.textContent = 'Stopping…'; });
+els.sunoTab.addEventListener('click', () => switchPanel('suno'));
 els.queueTab.addEventListener('click', () => switchPanel('queue'));
 els.favoritesTab.addEventListener('click', () => switchPanel('favorites'));
 els.downloadsTab.addEventListener('click', () => switchPanel('downloads'));

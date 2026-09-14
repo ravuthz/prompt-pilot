@@ -8,11 +8,18 @@
   </head>
   <body class="h-screen overflow-hidden bg-base-200 text-base-content">
     <main class="mx-auto flex h-screen w-full max-w-2xl flex-col gap-3 overflow-hidden p-3 sm:p-4">
-      <nav role="tablist" class="tabs tabs-box z-10 grid shrink-0 grid-cols-3">
+      <nav role="tablist" class="tabs tabs-box z-10 grid shrink-0 grid-cols-4">
         <button id="queueTab" role="tab" class="tab tooltip tooltip-bottom tab-active" data-tip="Prompt Queue" title="Prompt Queue" aria-label="Prompt Queue">
           <svg aria-hidden="true" viewBox="0 0 24 24" class="size-5 fill-none stroke-current" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
             <path d="M8 6h11M8 12h11M8 18h11" />
             <path d="m3 6 1 1 2-2M3 12l1 1 2-2M3 18l1 1 2-2" />
+          </svg>
+        </button>
+        <button id="sunoTab" role="tab" class="tab tooltip tooltip-bottom" data-tip="Prompt Suno" title="Prompt Suno" aria-label="Prompt Suno">
+          <svg aria-hidden="true" viewBox="0 0 24 24" class="size-5 fill-none stroke-current" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M9 18V5l12-2v13" />
+            <circle cx="6" cy="18" r="3" />
+            <circle cx="18" cy="16" r="3" />
           </svg>
         </button>
         <button id="favoritesTab" role="tab" class="tab tooltip tooltip-bottom" data-tip="Favorites" title="Favorites" aria-label="Favorites">
@@ -92,6 +99,71 @@
       <section class="rounded-box border border-base-300 bg-base-100 p-3 text-xs leading-relaxed opacity-70">
         Keep the AI tab active while the queue runs. Review AI-site terms before automating high-volume prompts.
       </section>
+      </div>
+
+      <div id="sunoPanel" class="prompt-scroll hidden min-h-0 flex-1 flex-col gap-3 overflow-y-auto">
+        <section class="card card-border bg-base-100 shadow-sm">
+          <div class="card-body gap-3 p-4">
+            <div class="flex items-center justify-between gap-3">
+              <div>
+                <label for="sunoPrompts" class="font-semibold">Prompt Suno</label>
+                <p class="text-xs opacity-60">Create multiple Suno songs in new tabs</p>
+              </div>
+              <span id="sunoCountBadge" class="badge badge-ghost badge-sm">0 songs</span>
+            </div>
+            <textarea id="sunoPrompts" class="textarea h-56 w-full resize-y font-mono text-sm leading-relaxed" placeholder="@title: Desert Thunder&#10;@gender: male&#10;@styles: desert rock, distorted blues guitar, heavy drums&#10;---&#10;@title: Electric Dreams&#10;@gender: female&#10;@styles: synthwave, 80s retro, electronic&#10;&#10;[Verse 1]&#10;Dancing through the electric night..."></textarea>
+            
+            <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <label class="form-control">
+                <span class="label flex justify-between pb-1 text-xs font-medium opacity-70">
+                  <span>Delay between tabs</span>
+                  <output id="sunoDelayValue" for="sunoDelay" class="font-mono">5 seconds</output>
+                </span>
+                <input id="sunoDelay" type="range" min="0" max="37" step="1" value="1" class="range range-sm w-full" />
+                <span class="mt-1 flex justify-between text-xs opacity-50"><span>3 sec</span><span>1 min</span><span>10 min</span></span>
+              </label>
+              <div class="flex flex-col justify-end">
+                <div class="rounded-box bg-base-200 p-2.5 text-xs text-base-content/70">
+                  <span class="font-semibold block mb-0.5">Format:</span>
+                  <code class="text-xs font-mono">---</code> splits songs<br/>
+                  <code class="text-xs font-mono">@title: Desert Thunder</code><br/>
+                  <code class="text-xs font-mono">@gender: male</code><br/>
+                  <code class="text-xs font-mono">@styles: desert rock, blues</code>
+                </div>
+            </div>
+
+            <label class="flex cursor-pointer items-center justify-between gap-3 rounded-box bg-base-200 px-3 py-2.5">
+              <span>
+                <span class="block text-sm font-medium">Press Create automatically</span>
+                <span class="block text-xs opacity-60">Turn off to populate fields in new tabs without clicking Create</span>
+              </span>
+              <input id="sunoAutoCreate" type="checkbox" class="toggle toggle-sm" checked />
+            </label>
+          </div>
+        </section>
+
+        <section class="card card-border bg-base-100 shadow-sm">
+          <div class="card-body gap-3 p-4">
+            <div class="flex items-center justify-between gap-3">
+              <div>
+                <h2 class="font-semibold">Run status</h2>
+                <p id="sunoStatusText" class="text-xs opacity-60">Ready to create</p>
+              </div>
+              <span id="sunoProgressLabel" class="font-mono text-xs opacity-60">0 / 0</span>
+            </div>
+            <progress id="sunoProgress" class="progress w-full" value="0" max="1"></progress>
+            <div id="sunoNotice" role="alert" class="alert alert-soft hidden py-2.5 text-sm"></div>
+            <div class="card-actions grid grid-cols-3 gap-2 pt-1">
+              <button id="sunoStartBtn" class="btn btn-primary btn-sm">Create Suno Songs</button>
+              <button id="sunoPauseBtn" class="btn btn-sm" disabled>Pause</button>
+              <button id="sunoStopBtn" class="btn btn-sm" disabled>Stop</button>
+            </div>
+          </div>
+        </section>
+
+        <section class="rounded-box border border-base-300 bg-base-100 p-3 text-xs leading-relaxed opacity-70">
+          Each song opens in a new tab on suno.com/create, enables Custom Mode, fills in lyrics, style, gender, and title, and creates the track. Ensure you are logged in to Suno.
+        </section>
       </div>
 
       <div id="favoritesPanel" class="prompt-scroll hidden min-h-0 flex-1 flex-col gap-3 overflow-y-auto">

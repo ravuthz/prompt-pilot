@@ -60,7 +60,25 @@
     { name: 'Gemini', host: /(^|\.)gemini\.google\.com$/, inputs: ['rich-textarea div[contenteditable="true"]', 'div[contenteditable="true"][role="textbox"]', 'div[contenteditable="true"]'], sends: ['button[aria-label*="Send message"]', 'button.send-button', 'button[aria-label*="Submit"]'] },
     { name: 'Grok', match: (host, path) => /(^|\.)grok\.com$/i.test(host) || (/(^|\.)(x|twitter)\.com$/i.test(host) && /\/i\/grok/i.test(path)), inputs: ['textarea[placeholder*="Ask" i]', 'textarea[placeholder*="Grok" i]', 'div[contenteditable="true"]', 'textarea'], sends: ['button[aria-label*="Grok" i]', 'button[aria-label*="Submit" i]', 'button[aria-label*="Send" i]', 'button[type="submit"]'] },
     { name: 'Perplexity', host: /(^|\.)perplexity\.ai$/, inputs: ['textarea[placeholder]', 'div[contenteditable="true"][role="textbox"]', 'textarea'], sends: ['button[aria-label*="Submit"]', 'button[aria-label*="Send"]', 'button[type="submit"]'] },
-    { name: 'Microsoft Copilot', host: /(^|\.)copilot\.microsoft\.com$/, inputs: ['textarea', 'div[contenteditable="true"][role="textbox"]', 'div[contenteditable="true"]'], sends: ['button[aria-label*="Submit"]', 'button[aria-label*="Send"]', 'button[type="submit"]'] }
+    { name: 'Microsoft Copilot', host: /(^|\.)copilot\.microsoft\.com$/, inputs: ['textarea', 'div[contenteditable="true"][role="textbox"]', 'div[contenteditable="true"]'], sends: ['button[aria-label*="Submit"]', 'button[aria-label*="Send"]', 'button[type="submit"]'] },
+    {
+      name: 'Suno',
+      host: /(^|\.)suno\.(com|ai)$/,
+      inputs: [
+        'textarea[placeholder*="lyrics" i]',
+        'textarea[placeholder*="write your own" i]',
+        'textarea[placeholder*="enter your lyrics" i]',
+        'textarea[placeholder*="style" i]',
+        'textarea[placeholder*="prompt" i]',
+        'textarea[placeholder*="describe" i]',
+        'textarea',
+        '[contenteditable="true"]'
+      ],
+      sends: [
+        'button[aria-label*="create" i]',
+        'button[type="submit"]'
+      ]
+    },
   ];
 
   const generic = {
@@ -185,6 +203,14 @@
     }
     element.focus();
     if (element instanceof HTMLTextAreaElement || element instanceof HTMLInputElement) {
+      element.focus();
+      try {
+        if (document.queryCommandSupported?.('insertText')) {
+          element.select?.();
+          document.execCommand('insertText', false, value);
+        }
+      } catch {}
+
       const prototype = element instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
       element.dispatchEvent(new InputEvent('beforeinput', {
         bubbles: true,
@@ -193,10 +219,30 @@
         inputType: 'insertText',
         data: value
       }));
-      Object.getOwnPropertyDescriptor(prototype, 'value').set.call(element, value);
+      try {
+        const descriptor = Object.getOwnPropertyDescriptor(prototype, 'value');
+        if (descriptor?.set) {
+          descriptor.set.call(element, value);
+        } else {
+          element.value = value;
+        }
+      } catch {
+        element.value = value;
+      }
+      element.value = value;
+
+      try {
+        const tracker = element._valueTracker;
+        if (tracker && typeof tracker.setValue === 'function') {
+          tracker.setValue('__prompt_pilot_reset__');
+        }
+      } catch {}
+
+      element.dispatchEvent(new Event('input', { bubbles: true, composed: true }));
       element.dispatchEvent(new InputEvent('input', { bubbles: true, composed: true, inputType: 'insertText', data: value }));
       element.dispatchEvent(new Event('change', { bubbles: true, composed: true }));
       element.dispatchEvent(new KeyboardEvent('keyup', { key: 'Unidentified', bubbles: true, composed: true }));
+      element.dispatchEvent(new FocusEvent('blur', { bubbles: true, composed: true }));
       return true;
     }
 
@@ -649,6 +695,448 @@
     });
   }
 
+  async function waitForCondition(predicate, timeout = 6000, interval = 150) {
+    const deadline = Date.now() + timeout;
+    while (Date.now() < deadline) {
+      const result = predicate();
+      if (result) return result;
+      await delay(interval);
+    }
+    return predicate();
+  }
+
+  function findCustomToggle() {
+    const candidates = [
+      ...document.querySelectorAll('button, [role="button"], [role="switch"], [role="tab"], input[type="checkbox"], label, div, span')
+    ];
+    for (const el of candidates) {
+      if (!visible(el)) continue;
+      if (el.closest('nav, aside, footer')) continue;
+      const text = (el.textContent || '').trim();
+      const ariaLabel = el.getAttribute('aria-label') || '';
+      const name = el.getAttribute('name') || '';
+      if (/^custom(\s+mode)?$/i.test(text) || /^custom$/i.test(ariaLabel) || name === 'custom') {
+        return el;
+      }
+    }
+    return null;
+  }
+
+  function isCustomModeActive() {
+    const styleInput = findVisible([
+      'textarea[placeholder*="style" i]',
+      'input[placeholder*="style" i]',
+      'textarea[aria-label*="style" i]',
+      'input[aria-label*="style" i]'
+    ]);
+    const titleInput = findVisible([
+      'input[placeholder*="title" i]',
+      'textarea[placeholder*="title" i]',
+      'input[aria-label*="title" i]'
+    ]);
+    return Boolean(styleInput || titleInput);
+  }
+
+  function isExcludeField(el) {
+    if (!el) return false;
+    const ph = (el.getAttribute('placeholder') || '').toLowerCase();
+    const aria = (el.getAttribute('aria-label') || '').toLowerCase();
+    const name = (el.getAttribute('name') || '').toLowerCase();
+    const id = (el.id || '').toLowerCase();
+    const title = (el.title || '').toLowerCase();
+    if (ph.includes('exclude') || aria.includes('exclude') || name.includes('exclude') || id.includes('exclude') || title.includes('exclude')) {
+      return true;
+    }
+    const label = el.closest('label');
+    if (label && (label.innerText || label.textContent || '').toLowerCase().includes('exclude')) {
+      return true;
+    }
+    return false;
+  }
+
+  function findSunoTitleInput() {
+    const candidates = [...document.querySelectorAll('input, textarea')].filter((el) => visible(el) && !isExcludeField(el));
+    return candidates.find((el) => {
+      const ph = (el.getAttribute('placeholder') || '').toLowerCase();
+      const aria = (el.getAttribute('aria-label') || '').toLowerCase();
+      const name = (el.getAttribute('name') || '').toLowerCase();
+      return ph.includes('title') || aria.includes('title') || name.includes('title');
+    }) || null;
+  }
+
+  function getSunoFormTextareas() {
+    const textareas = [...document.querySelectorAll('main textarea, form textarea, [role="main"] textarea, textarea')]
+      .filter((el) => visible(el) && !isExcludeField(el));
+    const unique = Array.from(new Set(textareas));
+    unique.sort((a, b) => {
+      const topA = a.getBoundingClientRect().top;
+      const topB = b.getBoundingClientRect().top;
+      return topA - topB;
+    });
+    return unique;
+  }
+
+  function findSunoStyleInput() {
+    const explicit = [...document.querySelectorAll('textarea, input')].find((el) => {
+      if (!visible(el) || isExcludeField(el)) return false;
+      const ph = (el.getAttribute('placeholder') || '').toLowerCase();
+      const aria = (el.getAttribute('aria-label') || '').toLowerCase();
+      const name = (el.getAttribute('name') || '').toLowerCase();
+      return (ph.includes('style') || aria.includes('style') || name.includes('style') || ph.includes('genre') || ph.includes('describe'))
+        && !ph.includes('lyric') && !aria.includes('lyric') && !ph.includes('title') && !aria.includes('title');
+    });
+    if (explicit) return explicit;
+
+    const textareas = getSunoFormTextareas();
+    if (textareas.length >= 2) {
+      return textareas[1];
+    }
+
+    const labels = [...document.querySelectorAll('label, div, h2, h3, h4, span')].filter(visible);
+    for (const label of labels) {
+      const text = (label.textContent || '').trim();
+      if (/^styles?(\s+of\s+music)?$/i.test(text) && !isExcludeField(label)) {
+        let sibling = label.nextElementSibling;
+        while (sibling) {
+          const input = sibling.matches('textarea, input') ? sibling : sibling.querySelector('textarea, input');
+          if (input && visible(input) && !isExcludeField(input)) return input;
+          sibling = sibling.nextElementSibling;
+        }
+      }
+    }
+
+    return textareas[0] || null;
+  }
+
+  function findSunoLyricsInput() {
+    const explicit = [...document.querySelectorAll('textarea, [contenteditable="true"]')].find((el) => {
+      if (!visible(el) || isExcludeField(el)) return false;
+      const ph = (el.getAttribute('placeholder') || '').toLowerCase();
+      const aria = (el.getAttribute('aria-label') || '').toLowerCase();
+      return (ph.includes('lyric') || aria.includes('lyric') || ph.includes('write your own') || ph.includes('enter your own') || ph.includes('verse'))
+        && !ph.includes('style') && !aria.includes('style') && !ph.includes('title') && !aria.includes('title');
+    });
+    if (explicit) return explicit;
+
+    const textareas = getSunoFormTextareas();
+    if (textareas.length >= 2) {
+      return textareas[0];
+    }
+
+    const labels = [...document.querySelectorAll('label, div, h2, h3, h4, span')].filter(visible);
+    for (const label of labels) {
+      const text = (label.textContent || '').trim();
+      if (/^lyrics$/i.test(text) && !isExcludeField(label)) {
+        let sibling = label.nextElementSibling;
+        while (sibling) {
+          const input = sibling.matches('textarea, [contenteditable="true"]') ? sibling : sibling.querySelector('textarea, [contenteditable="true"]');
+          if (input && visible(input) && !isExcludeField(input)) return input;
+          sibling = sibling.nextElementSibling;
+        }
+      }
+    }
+
+    return textareas[0] || null;
+  }
+
+  function isBtnDisabled(btn) {
+    if (!btn) return true;
+    if (btn.disabled) return true;
+    if (btn.getAttribute('aria-disabled') === 'true') return true;
+    if (btn.hasAttribute('data-trigger-disabled')) return true;
+    if (btn.hasAttribute('data-disabled')) return true;
+    if (btn.classList?.contains('disabled')) return true;
+    return false;
+  }
+
+  function isSunoCreateButton(btn, referenceInput) {
+    if (!visible(btn)) return false;
+    if (btn.closest('nav, aside, [class*="sidebar" i], [class*="nav" i], [aria-label*="sidebar" i]')) return false;
+    if (btn.getAttribute('role') === 'tab') return false;
+    if (btn.tagName === 'A') return false;
+
+    const btnRect = btn.getBoundingClientRect();
+    if (btnRect.width === 0 || btnRect.height === 0) return false;
+
+    if (referenceInput) {
+      const refRect = referenceInput.getBoundingClientRect();
+      if (btnRect.right < refRect.left - 20) return false;
+    }
+
+    const text = (btn.textContent || '').replace(/\s+/g, ' ').trim();
+    const aria = (btn.getAttribute('aria-label') || '').trim();
+    const testId = (btn.getAttribute('data-testid') || '').trim();
+    const name = (btn.getAttribute('name') || '').trim();
+
+    if (/playlist|folder|account|profile|library|upload|clear/i.test(text)) return false;
+    if (/clear all/i.test(aria)) return false;
+
+    if (/^create\s*song/i.test(aria) || aria === 'Create song') return true;
+    if (/^create(\s|$|\()/i.test(text) || /^create/i.test(aria)) return true;
+    if (/create\s*song/i.test(aria) || /create/i.test(testId) || /create/i.test(name)) return true;
+    if (btn.type === 'submit' && /\b(create|generate)\b/i.test(text)) return true;
+    if (/\b(create|generate)\b/i.test(text)) return true;
+    return false;
+  }
+
+  function findSunoCreateButton(onlyEnabled = false) {
+    const titleInput = findSunoTitleInput();
+    const styleInput = findSunoStyleInput();
+    const lyricsInput = findSunoLyricsInput();
+    const referenceInput = titleInput || styleInput || lyricsInput;
+
+    const exactMatches = [...document.querySelectorAll('button[aria-label="Create song"]')].filter((btn) => {
+      if (!visible(btn)) return false;
+      if (referenceInput) {
+        const refRect = referenceInput.getBoundingClientRect();
+        const btnRect = btn.getBoundingClientRect();
+        if (btnRect.right < refRect.left - 20) return false;
+      }
+      return true;
+    });
+
+    if (exactMatches.length > 0) {
+      if (onlyEnabled) {
+        const enabled = exactMatches.find((btn) => !isBtnDisabled(btn));
+        if (enabled) return enabled;
+      } else {
+        return exactMatches[0];
+      }
+    }
+
+    const root = referenceInput?.closest('main, form, [class*="create" i]') || document;
+    const allButtons = [
+      ...root.querySelectorAll('button, [role="button"]')
+    ].filter((btn) => isSunoCreateButton(btn, referenceInput));
+
+    const unique = Array.from(new Set(allButtons));
+
+    if (referenceInput) {
+      const refTop = referenceInput.getBoundingClientRect().top;
+      unique.sort((a, b) => {
+        const aBelow = a.getBoundingClientRect().top > refTop ? 1 : 0;
+        const bBelow = b.getBoundingClientRect().top > refTop ? 1 : 0;
+        if (aBelow !== bBelow) return bBelow - aBelow;
+        return a.getBoundingClientRect().top - b.getBoundingClientRect().top;
+      });
+    }
+
+    if (onlyEnabled) {
+      return unique.find((btn) => !isBtnDisabled(btn)) || null;
+    }
+    return unique.find((btn) => !isBtnDisabled(btn))
+      || exactMatches[0]
+      || unique.find((btn) => btn.type === 'submit')
+      || unique[0]
+      || null;
+  }
+
+  function clickElement(el) {
+    if (!el) return false;
+    try {
+      el.scrollIntoView?.({ block: 'center', behavior: 'instant' });
+    } catch {}
+    el.focus?.();
+    const opts = { bubbles: true, cancelable: true, composed: true, view: window };
+    el.dispatchEvent(new PointerEvent('pointerdown', { ...opts, pointerId: 1, isPrimary: true, button: 0 }));
+    el.dispatchEvent(new MouseEvent('mousedown', { ...opts, button: 0 }));
+    el.dispatchEvent(new PointerEvent('pointerup', { ...opts, pointerId: 1, isPrimary: true, button: 0 }));
+    el.dispatchEvent(new MouseEvent('mouseup', { ...opts, button: 0 }));
+    el.dispatchEvent(new MouseEvent('click', { ...opts, button: 0 }));
+
+    const child = el.querySelector('span, div, p');
+    if (child) {
+      try {
+        child.dispatchEvent(new MouseEvent('click', { ...opts, button: 0 }));
+        child.click?.();
+      } catch {}
+    }
+
+    if (typeof el.click === 'function') el.click();
+
+    const form = el.closest('form');
+    if (form) {
+      try {
+        form.requestSubmit?.(el);
+      } catch {}
+    }
+    return true;
+  }
+
+  function findInstrumentalToggle() {
+    const candidates = [
+      ...document.querySelectorAll('button, [role="switch"], [role="button"], input[type="checkbox"], label')
+    ];
+    for (const el of candidates) {
+      if (!visible(el) || el.closest('nav, aside, footer')) continue;
+      const text = (el.textContent || '').trim();
+      const aria = el.getAttribute('aria-label') || '';
+      const name = el.getAttribute('name') || '';
+      if (/^instrumental$/i.test(text) || /^instrumental$/i.test(aria) || name === 'instrumental') {
+        return el;
+      }
+    }
+    return null;
+  }
+
+  function isInstrumentalActive() {
+    const toggle = findInstrumentalToggle();
+    if (!toggle) return false;
+    if (toggle instanceof HTMLInputElement && toggle.type === 'checkbox') return toggle.checked;
+    if (toggle.getAttribute('aria-checked') === 'true') return true;
+    if (toggle.getAttribute('data-state') === 'checked') return true;
+    const checkbox = toggle.querySelector('input[type="checkbox"]');
+    if (checkbox) return checkbox.checked;
+    return false;
+  }
+
+  async function setInstrumental(wantedActive) {
+    const toggle = findInstrumentalToggle();
+    if (!toggle) return;
+    const currentlyActive = isInstrumentalActive();
+    if (currentlyActive !== wantedActive) {
+      clickElement(toggle);
+      await delay(300);
+    }
+  }
+
+
+  async function applySunoVocalGender(gender) {
+    if (!gender) return;
+    const g = gender.toLowerCase().trim();
+    const wanted = g === 'male' || (g.includes('male') && !g.includes('female')) ? 'male' : (g === 'female' || g.includes('female') ? 'female' : null);
+    if (!wanted) return;
+
+    const advancedToggle = [...document.querySelectorAll('button, [role="button"], summary')].find((el) => {
+      if (!visible(el)) return false;
+      const text = (el.textContent || '').trim();
+      return /advanced options|more options|vocal gender/i.test(text);
+    });
+    if (advancedToggle && (advancedToggle.getAttribute('aria-expanded') === 'false' || !document.querySelector('[role="radiogroup"], input[name*="gender" i]'))) {
+      advancedToggle.click();
+      await delay(300);
+    }
+
+    const genderBtns = [...document.querySelectorAll('button, [role="radio"], label')].filter(visible);
+    const targetBtn = genderBtns.find((el) => {
+      const text = (el.textContent || '').trim().toLowerCase();
+      const val = (el.getAttribute('value') || el.getAttribute('aria-label') || '').toLowerCase();
+      return text === wanted || val === wanted || text === `${wanted} vocals` || text === `${wanted} voice`;
+    });
+    if (targetBtn) {
+      targetBtn.click();
+      await delay(150);
+    }
+  }
+
+  async function createSunoSong(song, autoCreate) {
+    if (location.hostname.includes('suno') && !location.pathname.includes('/create')) {
+      const createNav = document.querySelector('a[href*="/create"], button[aria-label*="create" i]');
+      if (createNav) {
+        createNav.click();
+        await delay(1200);
+      }
+    }
+
+    if (!isCustomModeActive()) {
+      const toggle = await waitForCondition(() => findCustomToggle() || (isCustomModeActive() ? true : null), 5000);
+      if (toggle && toggle !== true) {
+        toggle.click();
+        await delay(600);
+      }
+    }
+    const ready = await waitForCondition(() => isCustomModeActive() || findSunoLyricsInput(), 6000);
+    if (!ready) {
+      return { ok: false, error: 'Could not access Suno Custom Mode. Make sure you are on suno.com/create and logged in.' };
+    }
+    const lyricsInput = findSunoLyricsInput();
+    let targetLyrics = (song.lyrics || '').trim();
+    if (targetLyrics) {
+      await setInstrumental(false);
+      if (lyricsInput) {
+        setComposerValue(lyricsInput, targetLyrics);
+        await waitForComposerValue(lyricsInput, targetLyrics.slice(0, 20));
+        await delay(200);
+      }
+    } else if (song.gender) {
+      await setInstrumental(false);
+      if (lyricsInput) {
+        const titleWords = song.title || 'Music';
+        const autoStructure = `[Verse 1]\n${titleWords} in the morning light\nRunning fast into the night\n\n[Chorus]\n${titleWords} break away\nLiving for another day`;
+        setComposerValue(lyricsInput, autoStructure);
+        await waitForComposerValue(lyricsInput, autoStructure.slice(0, 20));
+        await delay(200);
+      }
+    } else {
+      await setInstrumental(true);
+    }
+
+    const styleInput = findSunoStyleInput();
+    let targetStyle = (song.styles || '').trim();
+    if (song.gender) {
+      const g = song.gender.toLowerCase().trim();
+      const isMale = g === 'male' || (g.includes('male') && !g.includes('female'));
+      const isFemale = g === 'female' || g.includes('female');
+      if (isMale || isFemale) {
+        const vocalLabel = isMale ? 'male vocals' : 'female vocals';
+        if (!/(male|female)\s*(vocals?|voice|singer)?/i.test(targetStyle)) {
+          targetStyle = targetStyle ? `${targetStyle}, ${vocalLabel}` : vocalLabel;
+        }
+      }
+    }
+    if (styleInput && targetStyle) {
+      setComposerValue(styleInput, targetStyle);
+      await waitForComposerValue(styleInput, targetStyle.slice(0, 30));
+      await delay(200);
+    }
+
+    const titleInput = findSunoTitleInput();
+    if (titleInput && song.title) {
+      setComposerValue(titleInput, song.title);
+      await waitForComposerValue(titleInput, song.title);
+      await delay(200);
+    }
+
+    if (song.gender) {
+      try {
+        await applySunoVocalGender(song.gender);
+      } catch {}
+    }
+
+    await delay(350);
+
+    if (!autoCreate) {
+      return { ok: true, created: false, message: 'Song parameters populated in Suno.' };
+    }
+
+    [titleInput, styleInput, lyricsInput].forEach((input) => {
+      if (input) {
+        input.focus?.();
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+        input.dispatchEvent(new Event('change', { bubbles: true }));
+        input.dispatchEvent(new FocusEvent('blur', { bubbles: true }));
+      }
+    });
+    await delay(300);
+
+    let createBtn = await waitForCondition(() => findSunoCreateButton(true), 8000, 200) || findSunoCreateButton(false);
+    if (!createBtn) {
+      return { ok: false, error: 'Song fields populated, but could not locate the Create button.' };
+    }
+
+    if (createBtn.hasAttribute('data-trigger-disabled')) {
+      createBtn.removeAttribute('data-trigger-disabled');
+    }
+    if (createBtn.hasAttribute('data-disabled')) {
+      createBtn.removeAttribute('data-disabled');
+    }
+    createBtn.disabled = false;
+
+    clickElement(createBtn);
+    await delay(1000);
+    return { ok: true, created: true, message: 'Song creation started in Suno.' };
+  }
+
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     if (message.type === 'PROMPT_PILOT_DETECT') {
       sendResponse({ site: adapter().name });
@@ -714,6 +1202,10 @@
         sendResponse({ ok: false, error: error.message });
       }
       return;
+    }
+    if (message.type === 'PROMPT_PILOT_CREATE_SUNO') {
+      createSunoSong(message.song, message.autoCreate).then(sendResponse);
+      return true;
     }
   });
 })();
