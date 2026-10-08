@@ -5,11 +5,18 @@
   "description": "Chrome side panel for sending bulk prompts to AI chat sites.",
   "scripts": {
     "build": "tailwindcss -i ./src.css -o ./styles.css --minify",
-    "watch": "tailwindcss -i ./src.css -o ./styles.css --watch"
+    "watch": "tailwindcss -i ./src.css -o ./styles.css --watch",
+    "cli": "bun run cli.ts",
+    "mcp": "bun run mcp-server.ts"
   },
   "devDependencies": {
     "@tailwindcss/cli": "^4.1.12",
+    "@types/ws": "^8.18.2",
     "daisyui": "^5.0.50",
     "tailwindcss": "^4.1.12"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.1",
+    "ws": "^8.22.0"
   }
 }

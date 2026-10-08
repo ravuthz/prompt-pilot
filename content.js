@@ -136,21 +136,66 @@
 
   function findSendButton(current) {
     if (current.name === 'Google Flow') {
-      const flowButton = [...document.querySelectorAll('button')].find((button) => {
+      // First search near the active input container
+      const activeInput = findVisible(current.inputs);
+      const container = activeInput?.closest('form, [class*="prompt" i], [class*="composer" i], [class*="input" i], div.relative') || document;
+      const candidates = [...container.querySelectorAll('button, [role="button"]')].concat([...document.querySelectorAll('button, [role="button"]')]);
+
+      const flowButton = candidates.find((button) => {
         if (!visible(button) || button.getAttribute('aria-haspopup')) return false;
+        const ariaLabel = (button.getAttribute('aria-label') || '').toLowerCase();
+        const title = (button.getAttribute('title') || '').toLowerCase();
+        const text = (button.textContent || '').trim().toLowerCase();
+        if (/close|menu|settings|more|help|account|back|delete|cancel|info|download/i.test(ariaLabel + ' ' + title + ' ' + text)) return false;
+
         const icon = button.querySelector('.google-symbols, svg, [class*="icon" i]');
-        const iconText = icon?.textContent?.trim()?.toLowerCase();
-        const text = (button.textContent || '').trim();
-        const ariaLabel = button.getAttribute('aria-label') || '';
-        if (iconText === 'arrow_forward' && /create|generate|send/i.test(text)) return true;
-        if (/^(create|generate|send|run)$/i.test(text)) return true;
-        if (/^(create|generate|send|submit)/i.test(ariaLabel)) return true;
+        const iconText = icon?.textContent?.trim()?.toLowerCase() || '';
+
+        if (iconText.includes('arrow_forward') || iconText.includes('send') || iconText.includes('spark') || iconText.includes('auto_awesome')) return true;
+        if (/^(create|generate|send|run|submit)/i.test(text)) return true;
+        if (/^(create|generate|send|submit|run)/i.test(ariaLabel)) return true;
+        if (/^(create|generate|send|submit)/i.test(title)) return true;
         return false;
       });
       if (flowButton) return flowButton;
     }
     return findVisible(current.sends);
   }
+  async function ensureFlowProject() {
+    const current = adapter();
+    if (current.name !== 'Google Flow') return true;
+
+    // If input is already visible, project is ready
+    const existingInput = findVisible(current.inputs);
+    if (existingInput) return true;
+
+    // Look for "New project", "Create project", "+" or project card in gallery
+    const projectButtons = [...document.querySelectorAll('button, a, [role="button"]')].filter(visible);
+    const newProjectBtn = projectButtons.find((el) => {
+      const text = (el.textContent || '').trim().toLowerCase();
+      const aria = (el.getAttribute('aria-label') || '').toLowerCase();
+      return /new\s*project|create\s*project|start\s*creating/i.test(text) ||
+             /new\s*project|create\s*project|start\s*creating/i.test(aria) ||
+             el.querySelector('.google-symbols, svg')?.textContent?.includes('add');
+    });
+
+    if (newProjectBtn) {
+      newProjectBtn.click();
+      await delay(2000);
+      return Boolean(findVisible(current.inputs));
+    }
+
+    // If no explicit "New Project" button, try clicking the first existing project tile/card
+    const projectCard = document.querySelector('[data-project-id], [class*="project-card" i], a[href*="/project/"], [class*="gallery-item" i]');
+    if (projectCard && visible(projectCard)) {
+      projectCard.click();
+      await delay(2000);
+      return Boolean(findVisible(current.inputs));
+    }
+
+    return false;
+  }
+
 
   function getSlateEditor(element) {
     if (!element) return null;
@@ -169,15 +214,31 @@
     selection.removeAllRanges();
     selection.addRange(range);
 
-    const transfer = new DataTransfer();
-    transfer.setData('text/plain', value);
-    const pasteEvent = new ClipboardEvent('paste', {
-      clipboardData: transfer,
+    // Method 1: ClipboardEvent paste
+    try {
+      const transfer = new DataTransfer();
+      transfer.setData('text/plain', value);
+      const pasteEvent = new ClipboardEvent('paste', {
+        clipboardData: transfer,
+        bubbles: true,
+        cancelable: true,
+        composed: true
+      });
+      slate.dispatchEvent(pasteEvent);
+    } catch {}
+
+    // Method 2: beforeinput / insertText if not populated
+    slate.dispatchEvent(new InputEvent('beforeinput', {
       bubbles: true,
       cancelable: true,
-      composed: true
-    });
-    slate.dispatchEvent(pasteEvent);
+      composed: true,
+      inputType: 'insertText',
+      data: value
+    }));
+
+    try {
+      document.execCommand('insertText', false, value);
+    } catch {}
   }
 
   function focusComposer(element) {
@@ -304,23 +365,53 @@
 
   async function send(prompt, autoSend) {
     const current = adapter();
+    if (current.name === 'Google Flow') {
+      await ensureFlowProject();
+    }
     const input = findVisible(current.inputs);
-    if (!input) return { ok: false, error: `No message box found on ${current.name}.` };
+    if (!input) return { ok: false, error: `No message box found on ${current.name}. Make sure you are inside an active project.` };
+    focusComposer(input);
     setComposerValue(input, prompt);
     const inserted = await waitForComposerValue(input, prompt);
-    if (!inserted) return { ok: false, error: `${current.name} did not accept the pasted prompt.` };
+    if (!inserted) {
+      // Fallback: try direct execCommand or text injection if Slate event wasn't picked up
+      try {
+        document.execCommand('insertText', false, prompt);
+      } catch {}
+      const retryInserted = await waitForComposerValue(input, prompt);
+      if (!retryInserted) {
+        return { ok: false, error: `${current.name} did not accept the pasted prompt.` };
+      }
+    }
     await new Promise((resolve) => setTimeout(resolve, 350));
     if (!autoSend) return { ok: true };
     const button = await waitForSendButton(current);
     if (button && !button.disabled && button.getAttribute('aria-disabled') !== 'true') {
-      button.click();
-      return { ok: true };
+      const btnDetails = {
+        tag: button.tagName,
+        text: button.textContent?.trim(),
+        ariaLabel: button.getAttribute('aria-label'),
+        className: button.className
+      };
+      clickElement(button);
+      return { ok: true, submitted: 'button', button: btnDetails };
     }
-    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', bubbles: true, cancelable: true }));
-    input.dispatchEvent(new KeyboardEvent('keyup', { key: 'Enter', code: 'Enter', bubbles: true, cancelable: true }));
-    return { ok: true };
-  }
 
+    // Try Enter key submission on the input / Slate editor
+    const targetInput = getSlateEditor(input) || input;
+    targetInput.focus();
+    const enterOpts = { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, cancelable: true, composed: true };
+    targetInput.dispatchEvent(new KeyboardEvent('keydown', enterOpts));
+    targetInput.dispatchEvent(new KeyboardEvent('keypress', enterOpts));
+    targetInput.dispatchEvent(new KeyboardEvent('keyup', enterOpts));
+
+    const form = targetInput.closest('form');
+    if (form) {
+      try { form.requestSubmit?.(); } catch {}
+    }
+
+    return { ok: true, submitted: 'enter' };
+  }
   function mediaExtension(url, type) {
     try {
       const match = new URL(url, location.href).pathname.match(/\.([a-z0-9]{2,5})$/i);
@@ -1166,13 +1257,22 @@
       }
       waitForSendButton(current).then((button) => {
         if (button && !button.disabled && button.getAttribute('aria-disabled') !== 'true') {
-          button.click();
-          sendResponse({ ok: true });
+          clickElement(button);
+          sendResponse({ ok: true, method: 'clickElement' });
           return;
         }
-        input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, cancelable: true }));
-        input.dispatchEvent(new KeyboardEvent('keyup', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, cancelable: true }));
-        sendResponse({ ok: true });
+        input.focus();
+        const enterOpts = { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, cancelable: true, composed: true };
+        input.dispatchEvent(new KeyboardEvent('keydown', enterOpts));
+        input.dispatchEvent(new KeyboardEvent('keypress', enterOpts));
+        input.dispatchEvent(new KeyboardEvent('keyup', enterOpts));
+        sendResponse({ ok: true, method: 'enterKey' });
+      });
+      return true;
+    }
+    if (message.type === 'PROMPT_PILOT_OPEN_FLOW_PROJECT') {
+      ensureFlowProject().then((ready) => {
+        sendResponse({ ok: ready, hasPromptBox: Boolean(findVisible(adapter().inputs)) });
       });
       return true;
     }
