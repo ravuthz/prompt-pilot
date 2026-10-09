@@ -74,7 +74,12 @@ async function main() {
 
   const remoteArg = args.find((a, idx) => a === '--remote' ? args[idx + 1] : undefined);
   const tokenArg = args.find((a, idx) => a === '--token' ? args[idx + 1] : undefined);
-  const bridge = new BridgeHost(9988, { remoteUrl: remoteArg, token: tokenArg });
+  // When starting the server itself, it must listen locally (never act as a client)
+  const bridge = new BridgeHost(9988, {
+    remoteUrl: command === 'server' ? '' : remoteArg,
+    token: tokenArg,
+    isServer: command === 'server'
+  });
 
   if (command === 'server') {
     await bridge.start();

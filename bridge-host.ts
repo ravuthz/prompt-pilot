@@ -38,13 +38,15 @@ export class BridgeHost {
     answered: boolean;
   }>();
 
-  constructor(private port: number = 9988, options: { token?: string; remoteUrl?: string } = {}) {
+  constructor(private port: number = 9988, options: { token?: string; remoteUrl?: string; isServer?: boolean } = {}) {
     this.authToken = options.token || process.env.PROMPT_PILOT_TOKEN || '';
-    this.remoteUrl = options.remoteUrl || process.env.PROMPT_PILOT_REMOTE || '';
+    if (!options.isServer) {
+      this.remoteUrl = options.remoteUrl || process.env.PROMPT_PILOT_REMOTE || '';
+    }
   }
 
   async start(): Promise<void> {
-    // If a remote URL (e.g. wss://prompt.yourdomain.com) is specified, connect directly as remote client
+    // If a remote URL (e.g. wss://prompt.yourdomain.com) is specified and NOT in server mode, connect directly as remote client
     if (this.remoteUrl) {
       await this.connectToRemoteUrl(this.remoteUrl);
       return;
@@ -137,9 +139,8 @@ export class BridgeHost {
     ws.on('message', (data) => {
       try {
         const msg = JSON.parse(data.toString());
-
-        // Validate token if authentication is enabled
-        if (this.isServer && this.authToken && !this.checkAuth(ws, msg.token)) {
+        const token = msg.token || (msg.params && typeof msg.params === 'object' && msg.params.token);
+        if (this.isServer && this.authToken && !this.checkAuth(ws, token)) {
           ws.send(JSON.stringify({
             id: msg.id,
             success: false,
@@ -147,7 +148,6 @@ export class BridgeHost {
           }));
           return;
         }
-
         if (msg.type === 'REGISTER') {
           if (msg.client === 'chrome-extension' || msg.client === 'prompt-pilot-client') {
             let index = 1;
@@ -218,8 +218,13 @@ export class BridgeHost {
             this.pendingRequests.delete(msg.id);
             clearTimeout(pending.timer);
             const bId = msg.browserId || this.wsToBrowserId.get(ws);
-            const enriched = (msg.data && typeof msg.data === 'object') ? { ...msg.data, browserId: bId } : msg.data;
-            pending.resolve(enriched);
+            let resolvedData = msg.data;
+            if (Array.isArray(msg.data)) {
+              resolvedData = msg.data;
+            } else if (msg.data && typeof msg.data === 'object') {
+              resolvedData = { ...msg.data, browserId: bId };
+            }
+            pending.resolve(resolvedData);
           } else {
             const remaining = this.browserMap.size;
             if (remaining <= 1) {
@@ -254,7 +259,11 @@ export class BridgeHost {
       return Array.from(this.browserMap.keys());
     }
     const res = await this.sendAction('list_browsers');
-    return Array.isArray(res) ? res : [];
+    if (Array.isArray(res)) return res;
+    if (res && typeof res === 'object') {
+      return Object.values(res).filter((v): v is string => typeof v === 'string');
+    }
+    return [];
   }
 
   isConnected(): boolean {

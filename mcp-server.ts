@@ -7,7 +7,7 @@ import {
 } from '@modelcontextprotocol/sdk/types.js';
 import { BridgeHost } from './bridge-host';
 
-const bridge = new BridgeHost(9988);
+const bridge = new BridgeHost(9988, { isServer: true });
 
 const server = new Server(
   {
