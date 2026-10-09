@@ -32,10 +32,11 @@
             <path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14" />
           </svg>
         </button>
-        <button id="bridgeTab" role="tab" class="tab tooltip tooltip-bottom" data-tip="Remote Bridge" title="Remote Bridge" aria-label="Remote Bridge">
+        <button id="bridgeTab" role="tab" class="tab tooltip tooltip-bottom relative" data-tip="Remote Bridge" title="Remote Bridge" aria-label="Remote Bridge">
           <svg aria-hidden="true" viewBox="0 0 24 24" class="size-5 fill-none stroke-current" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
             <path d="M5 12h14M12 5l7 7-7 7" />
           </svg>
+          <span id="bridgeStatusDot" class="absolute top-1.5 right-1.5 size-2 rounded-full bg-base-300"></span>
         </button>
       </nav>
 
@@ -229,9 +230,12 @@
       <div id="bridgePanel" class="prompt-scroll hidden min-h-0 flex-1 flex-col gap-3 overflow-y-auto">
         <section class="card card-border bg-base-100 shadow-sm">
           <div class="card-body gap-3 p-4">
-            <div>
-              <h2 class="font-semibold">Remote Bridge / Cloudflare</h2>
-              <p class="text-xs opacity-60">Connect this browser to a remote CLI or Cloudflare Tunnel endpoint.</p>
+            <div class="flex items-center justify-between gap-2">
+              <div>
+                <h2 class="font-semibold">Remote Bridge / Cloudflare</h2>
+                <p class="text-xs opacity-60">Status: <span id="bridgeConnectionStatus" class="font-medium text-warning">Connecting...</span></p>
+              </div>
+              <span id="bridgeStatusBadge" class="badge badge-warning badge-sm">Offline</span>
             </div>
             <label class="form-control">
               <span class="label pb-1 text-xs font-medium opacity-70">Bridge WebSocket URL</span>
@@ -243,6 +247,7 @@
             </label>
             <div id="bridgeNotice" role="alert" class="alert alert-soft alert-info hidden py-2.5 text-sm"></div>
             <div class="card-actions flex justify-end gap-2 pt-2">
+              <button id="testBridgeConnectionBtn" class="btn btn-outline btn-sm">Test Connection</button>
               <button id="saveBridgeConfigBtn" class="btn btn-primary btn-sm">Save & Reconnect</button>
             </div>
           </div>

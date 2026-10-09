@@ -29,9 +29,14 @@ async function connectBridge() {
     const config = await getBridgeConfig();
     socket = new WebSocket(config.url);
 
-    socket.onopen = () => {
+    socket.onopen = async () => {
       isConnecting = false;
       console.log(`[PromptPilot Bridge] Connected to ${config.url}`);
+      await chrome.storage.local.set({
+        promptPilotBridgeConnected: true,
+        promptPilotBridgeConnectedUrl: config.url,
+        promptPilotBridgeLastConnected: Date.now()
+      });
       socket.send(JSON.stringify({
         type: 'REGISTER',
         client: 'chrome-extension',
@@ -68,13 +73,15 @@ async function connectBridge() {
       }
     };
 
-    socket.onclose = () => {
+    socket.onclose = async () => {
       socket = null;
       isConnecting = false;
+      await chrome.storage.local.set({ promptPilotBridgeConnected: false });
       scheduleReconnect();
     };
 
-    socket.onerror = () => {
+    socket.onerror = async () => {
+      await chrome.storage.local.set({ promptPilotBridgeConnected: false });
       try { socket.close(); } catch {}
     };
   } catch (e) {

@@ -52,10 +52,14 @@ Object.assign(els, {
   upscaleMedia: document.querySelector('#upscaleMediaBtn'),
   downloadMedia: document.querySelector('#downloadMediaBtn'),
   bridgeTab: document.querySelector('#bridgeTab'),
+  bridgeStatusDot: document.querySelector('#bridgeStatusDot'),
   bridgePanel: document.querySelector('#bridgePanel'),
+  bridgeConnectionStatus: document.querySelector('#bridgeConnectionStatus'),
+  bridgeStatusBadge: document.querySelector('#bridgeStatusBadge'),
   bridgeUrlInput: document.querySelector('#bridgeUrlInput'),
   bridgeTokenInput: document.querySelector('#bridgeTokenInput'),
   bridgeNotice: document.querySelector('#bridgeNotice'),
+  testBridgeConnectionBtn: document.querySelector('#testBridgeConnectionBtn'),
   saveBridgeConfigBtn: document.querySelector('#saveBridgeConfigBtn')
 });
 
@@ -132,21 +136,36 @@ function switchPanel(panel) {
   const downloads = panel === 'downloads';
   const bridge = panel === 'bridge';
   const queue = !suno && !favorite && !downloads && !bridge;
-  els.queuePanel.classList.toggle('hidden', !queue);
-  els.queuePanel.classList.toggle('flex', queue);
-  els.sunoPanel.classList.toggle('hidden', !suno);
-  els.sunoPanel.classList.toggle('flex', suno);
-  els.favoritesPanel.classList.toggle('hidden', !favorite);
-  els.favoritesPanel.classList.toggle('flex', favorite);
-  els.downloadsPanel.classList.toggle('hidden', !downloads);
-  els.downloadsPanel.classList.toggle('flex', downloads);
-  els.bridgePanel?.classList.toggle('hidden', !bridge);
-  els.bridgePanel?.classList.toggle('flex', bridge);
-  els.queueTab.classList.toggle('tab-active', queue);
-  els.sunoTab.classList.toggle('tab-active', suno);
-  els.favoritesTab.classList.toggle('tab-active', favorite);
-  els.downloadsTab.classList.toggle('tab-active', downloads);
+
+  if (els.queuePanel) els.queuePanel.className = queue ? 'prompt-scroll flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto' : 'prompt-scroll hidden min-h-0 flex-1 flex-col gap-3 overflow-y-auto';
+  if (els.sunoPanel) els.sunoPanel.className = suno ? 'prompt-scroll flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto' : 'prompt-scroll hidden min-h-0 flex-1 flex-col gap-3 overflow-y-auto';
+  if (els.favoritesPanel) els.favoritesPanel.className = favorite ? 'prompt-scroll flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto' : 'prompt-scroll hidden min-h-0 flex-1 flex-col gap-3 overflow-y-auto';
+  if (els.downloadsPanel) els.downloadsPanel.className = downloads ? 'prompt-scroll flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto' : 'prompt-scroll hidden min-h-0 flex-1 flex-col gap-3 overflow-y-auto';
+  if (els.bridgePanel) els.bridgePanel.className = bridge ? 'prompt-scroll flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto' : 'prompt-scroll hidden min-h-0 flex-1 flex-col gap-3 overflow-y-auto';
+
+  els.queueTab?.classList.toggle('tab-active', queue);
+  els.sunoTab?.classList.toggle('tab-active', suno);
+  els.favoritesTab?.classList.toggle('tab-active', favorite);
+  els.downloadsTab?.classList.toggle('tab-active', downloads);
   els.bridgeTab?.classList.toggle('tab-active', bridge);
+}
+
+async function updateBridgeStatus() {
+  const data = await chrome.storage.local.get(['promptPilotBridgeConnected', 'promptPilotBridgeConnectedUrl', 'promptPilotBridgeLastConnected']);
+  const isConnected = Boolean(data.promptPilotBridgeConnected);
+  const url = data.promptPilotBridgeConnectedUrl || 'wss://prompt-pilot.appkh.online';
+
+  if (els.bridgeStatusDot) {
+    els.bridgeStatusDot.className = `absolute top-1.5 right-1.5 size-2 rounded-full ${isConnected ? 'bg-success' : 'bg-error'}`;
+  }
+  if (els.bridgeConnectionStatus) {
+    els.bridgeConnectionStatus.textContent = isConnected ? `Connected to ${url}` : 'Disconnected / Reconnecting';
+    els.bridgeConnectionStatus.className = `font-medium ${isConnected ? 'text-success' : 'text-error'}`;
+  }
+  if (els.bridgeStatusBadge) {
+    els.bridgeStatusBadge.textContent = isConnected ? 'Online' : 'Offline';
+    els.bridgeStatusBadge.className = `badge badge-sm ${isConnected ? 'badge-success' : 'badge-error'}`;
+  }
 }
 
 function favoriteGroup(url) {
@@ -829,12 +848,12 @@ async function runSunoQueue() {
 async function restore() {
   const saved = await chrome.storage.local.get([
     'prompts', 'separator', 'delay', 'autoSend', 'waitForResponse', 'favorites',
-    'sunoPrompts', 'sunoDelay', 'sunoAutoCreate'
+    'sunoPrompts', 'sunoDelay', 'sunoAutoCreate',
+    'promptPilotBridgeUrl', 'promptPilotBridgeToken'
   ]);
+  if (els.bridgeUrlInput) els.bridgeUrlInput.value = saved.promptPilotBridgeUrl || 'wss://prompt-pilot.appkh.online';
+  if (els.bridgeTokenInput) els.bridgeTokenInput.value = saved.promptPilotBridgeToken || '';
   els.prompts.value = saved.prompts || '';
-  els.separator.value = saved.separator || 'blank';
-  els.delay.value = String(closestDelayIndex(Math.min(600, Math.max(3, Number(saved.delay) || 6))));
-  els.autoSend.checked = saved.autoSend ?? true;
   els.waitForResponse.checked = saved.waitForResponse ?? false;
   favorites = Array.isArray(saved.favorites)
     ? saved.favorites.map((favorite) => ({ ...favorite, group: favorite.group === 'ChatGPT' ? 'GPT' : favorite.group }))
@@ -865,7 +884,18 @@ function save() {
   updateSunoCount();
   updateSunoDelayLabel();
 }
+
+function saveBridgeSettings() {
+  const url = els.bridgeUrlInput?.value.trim() || 'wss://prompt-pilot.appkh.online';
+  const token = els.bridgeTokenInput?.value.trim() || '';
+  chrome.storage.local.set({
+    promptPilotBridgeUrl: url,
+    promptPilotBridgeToken: token
+  });
+}
 ['input', 'change'].forEach((eventName) => {
+  els.bridgeUrlInput?.addEventListener(eventName, saveBridgeSettings);
+  els.bridgeTokenInput?.addEventListener(eventName, saveBridgeSettings);
   els.prompts.addEventListener(eventName, save);
   els.separator.addEventListener(eventName, save);
   els.delay.addEventListener(eventName, save);
@@ -893,11 +923,92 @@ els.sunoTab.addEventListener('click', () => switchPanel('suno'));
 els.queueTab.addEventListener('click', () => switchPanel('queue'));
 els.favoritesTab.addEventListener('click', () => switchPanel('favorites'));
 els.downloadsTab.addEventListener('click', () => switchPanel('downloads'));
-els.bridgeTab?.addEventListener('click', async () => {
+els.bridgeTab?.addEventListener('click', () => {
   switchPanel('bridge');
-  const stored = await chrome.storage.local.get(['promptPilotBridgeUrl', 'promptPilotBridgeToken']);
-  if (els.bridgeUrlInput) els.bridgeUrlInput.value = stored.promptPilotBridgeUrl || 'wss://prompt-pilot.appkh.online';
-  if (els.bridgeTokenInput) els.bridgeTokenInput.value = stored.promptPilotBridgeToken || '';
+  chrome.storage.local.get(['promptPilotBridgeUrl', 'promptPilotBridgeToken']).then((stored) => {
+    if (els.bridgeUrlInput) els.bridgeUrlInput.value = stored.promptPilotBridgeUrl || 'wss://prompt-pilot.appkh.online';
+    if (els.bridgeTokenInput) els.bridgeTokenInput.value = stored.promptPilotBridgeToken || '';
+  }).catch(() => {});
+});
+els.testBridgeConnectionBtn?.addEventListener('click', async () => {
+  const url = els.bridgeUrlInput?.value.trim() || 'wss://prompt-pilot.appkh.online';
+  const token = els.bridgeTokenInput?.value.trim() || '';
+
+  if (els.bridgeNotice) {
+    els.bridgeNotice.className = 'alert alert-soft alert-info py-2.5 text-sm';
+    els.bridgeNotice.textContent = `Testing connection to ${url}...`;
+    els.bridgeNotice.classList.remove('hidden');
+  }
+
+  try {
+    const successMsg = await new Promise((resolve, reject) => {
+      let settled = false;
+      const ws = new WebSocket(url);
+      const timer = setTimeout(() => {
+        if (settled) return;
+        settled = true;
+        try { ws.close(); } catch {}
+        reject(new Error('Connection timed out after 5 seconds.'));
+      }, 5000);
+    ws.onopen = () => {
+      // Send register to test token authentication
+      ws.send(JSON.stringify({
+        type: 'REGISTER',
+        client: 'test-client',
+        token: token || undefined
+      }));
+      // Send ping
+      ws.send(JSON.stringify({ type: 'PING' }));
+    };
+
+    ws.onmessage = (event) => {
+      try {
+        const msg = JSON.parse(event.data);
+        if (msg.error) {
+          if (settled) return;
+          settled = true;
+          clearTimeout(timer);
+          try { ws.close(); } catch {}
+          reject(new Error(msg.error));
+          return;
+        }
+        if (msg.type === 'PONG') {
+          if (settled) return;
+          settled = true;
+          clearTimeout(timer);
+          try { ws.close(); } catch {}
+          resolve('Connected and authenticated successfully!');
+        }
+      } catch {
+        settled = true;
+        clearTimeout(timer);
+        try { ws.close(); } catch {}
+        resolve('Connected successfully!');
+      }
+    };
+
+    ws.onerror = () => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      try { ws.close(); } catch {}
+      reject(new Error('Failed to establish WebSocket handshake. Check URL & network.'));
+    };
+  });
+
+  if (els.bridgeNotice) {
+    els.bridgeNotice.className = 'alert alert-soft alert-success py-2.5 text-sm';
+    els.bridgeNotice.textContent = successMsg;
+    els.bridgeNotice.classList.remove('hidden');
+  }
+  } catch (err) {
+    const errorMsg = err?.message || String(err);
+    if (els.bridgeNotice) {
+      els.bridgeNotice.className = 'alert alert-soft alert-error py-2.5 text-sm';
+      els.bridgeNotice.textContent = `Test failed: ${errorMsg}`;
+      els.bridgeNotice.classList.remove('hidden');
+    }
+  }
 });
 els.saveBridgeConfigBtn?.addEventListener('click', async () => {
   const url = els.bridgeUrlInput?.value.trim() || 'wss://prompt-pilot.appkh.online';
@@ -923,3 +1034,5 @@ els.toggleMedia.addEventListener('click', () => {
 els.upscaleMedia.addEventListener('click', upscaleFlowMedia);
 els.downloadMedia.addEventListener('click', downloadSelectedMedia);
 restore();
+updateBridgeStatus();
+setInterval(updateBridgeStatus, 3000);
