@@ -63,8 +63,70 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
               type: 'boolean',
               description: 'Toggle Google Flow Agent mode (true to enable, false to disable).',
             },
+            browser: {
+              type: 'string',
+              description: 'Target browser ID from browser_list (optional).',
+            },
           },
           required: ['prompt'],
+        },
+      },
+      {
+        name: 'flow_image',
+        description: 'Switch Google Flow mode directly to Image generation, with optional aspect ratio, count, model, or agent options.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            aspectRatio: {
+              type: 'string',
+              description: 'Aspect ratio (e.g. "16:9", "9:16", "1:1").',
+            },
+            count: {
+              type: 'number',
+              description: 'Number of images (e.g. 1, 2, 4).',
+            },
+            model: {
+              type: 'string',
+              description: 'Model name (e.g. "Nano Banana", "Imagen").',
+            },
+            agent: {
+              type: 'boolean',
+              description: 'Toggle Agent mode.',
+            },
+            browser: {
+              type: 'string',
+              description: 'Target browser ID from browser_list (optional).',
+            },
+          },
+        },
+      },
+      {
+        name: 'flow_video',
+        description: 'Switch Google Flow mode directly to Video generation, with optional aspect ratio, count, model, or agent options.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            aspectRatio: {
+              type: 'string',
+              description: 'Aspect ratio (e.g. "16:9", "9:16").',
+            },
+            count: {
+              type: 'number',
+              description: 'Number of videos (e.g. 1, 2).',
+            },
+            model: {
+              type: 'string',
+              description: 'Video model name (e.g. "Veo 3.1 - Lite", "Veo").',
+            },
+            agent: {
+              type: 'boolean',
+              description: 'Toggle Agent mode.',
+            },
+            browser: {
+              type: 'string',
+              description: 'Target browser ID from browser_list (optional).',
+            },
+          },
         },
       },
       {
@@ -94,7 +156,19 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
               type: 'boolean',
               description: 'Set Agent mode enabled (true) or disabled (false).',
             },
+            browser: {
+              type: 'string',
+              description: 'Target browser ID from browser_list (optional).',
+            },
           },
+        },
+      },
+      {
+        name: 'browser_list',
+        description: 'List all connected browser instances (Chrome / Brave windows).',
+        inputSchema: {
+          type: 'object',
+          properties: {},
         },
       },
       {
@@ -180,6 +254,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         const prompt = String(args?.prompt || '');
         const site = typeof args?.site === 'string' ? args.site : 'Google Flow';
         const autoSend = args?.autoSend !== false;
+        const targetBrowser = typeof args?.browser === 'string' ? args.browser : '1';
 
         const configOptions: Record<string, unknown> = {};
         if (args?.mode) configOptions.mode = args.mode;
@@ -190,10 +265,10 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
         let configResult;
         if (Object.keys(configOptions).length > 0) {
-          configResult = await bridge.sendAction('flow_config', { options: configOptions, site });
+          configResult = await bridge.sendAction('flow_config', { options: configOptions, site }, 30000, targetBrowser);
         }
 
-        const result = await bridge.sendAction('send_prompt', { prompt, site, autoSend });
+        const result = await bridge.sendAction('send_prompt', { prompt, site, autoSend }, 30000, targetBrowser);
         return {
           content: [
             {
@@ -204,16 +279,27 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         };
       }
 
+      case 'flow_image':
+      case 'flow_video':
       case 'flow_configure': {
         const site = typeof args?.site === 'string' ? args.site : 'Google Flow';
+        const targetBrowser = typeof args?.browser === 'string' ? args.browser : '1';
         const options: Record<string, unknown> = {};
+        if (name === 'flow_image') {
+          options.mode = 'image';
+          options.agent = false;
+        }
+        if (name === 'flow_video') {
+          options.mode = 'video';
+          options.agent = false;
+        }
         if (args?.mode) options.mode = args.mode;
         if (args?.aspectRatio) options.aspectRatio = args.aspectRatio;
         if (args?.count) options.count = args.count;
         if (args?.model) options.model = args.model;
         if (args?.agent !== undefined) options.agent = args.agent;
 
-        const result = await bridge.sendAction('flow_config', { options, site });
+        const result = await bridge.sendAction('flow_config', { options, site }, 30000, targetBrowser);
         return {
           content: [
             {
@@ -224,6 +310,17 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         };
       }
 
+      case 'browser_list': {
+        const list = await bridge.getConnectedBrowsers();
+        return {
+          content: [
+            {
+              type: 'text',
+              text: JSON.stringify(list, null, 2),
+            },
+          ],
+        };
+      }
       case 'flow_state': {
         const result = await bridge.sendAction('flow_state');
         return {

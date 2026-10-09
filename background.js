@@ -24,14 +24,16 @@ function connectBridge() {
     socket.onopen = () => {
       isConnecting = false;
       console.log('[PromptPilot Bridge] Connected to local bridge server.');
-      socket.send(JSON.stringify({ type: 'REGISTER', client: 'chrome-extension' }));
+      socket.send(JSON.stringify({
+        type: 'REGISTER',
+        client: 'chrome-extension'
+      }));
     };
 
     socket.onmessage = async (event) => {
       try {
         const payload = JSON.parse(event.data);
         if (!payload || !payload.id || !payload.action) return;
-
         const result = await handleBridgeAction(payload.action, payload.params || {});
         socket.send(JSON.stringify({
           id: payload.id,
@@ -87,24 +89,23 @@ setInterval(() => {
 
 async function findTargetTab(siteFilter) {
   const tabs = await chrome.tabs.query({});
+  const webTabs = tabs.filter(t => t.url && !t.url.startsWith('chrome://') && !t.url.startsWith('brave://') && !t.url.startsWith('edge://'));
+
   if (siteFilter) {
     const filter = String(siteFilter).toLowerCase();
-    const matched = tabs.find(t => (t.url || '').toLowerCase().includes(filter) || (t.title || '').toLowerCase().includes(filter));
+    const matched = webTabs.find(t => (t.url || '').toLowerCase().includes(filter) || (t.title || '').toLowerCase().includes(filter));
     if (matched) return matched;
   }
 
-  // Check active tab first
-  const [active] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
-  if (active && active.url && !active.url.startsWith('chrome://')) {
-    return active;
-  }
+  // Check any active tab in any window
+  const active = webTabs.find(t => t.active);
+  if (active) return active;
 
-  // Fallback to flow.google or labs.google if looking for google flow
-  const flowTab = tabs.find(t => /(flow\.google|labs\.google\/fx\/tools\/flow)/i.test(t.url || ''));
+  // Fallback to flow.google or labs.google
+  const flowTab = webTabs.find(t => /(flow\.google|labs\.google\/fx\/tools\/flow)/i.test(t.url || ''));
   if (flowTab) return flowTab;
 
-  // Fallback to any non-chrome tab
-  return tabs.find(t => t.url && !t.url.startsWith('chrome://'));
+  return webTabs[0] || null;
 }
 
 function isGoogleFlowUrl(urlStr) {
@@ -179,6 +180,13 @@ async function sendToContentScript(tabId, message) {
 }
 
 async function handleBridgeAction(action, params) {
+  if (action === 'list_tabs') {
+    const tabs = await chrome.tabs.query({});
+    return tabs
+      .filter(t => t.url && !t.url.startsWith('chrome://') && !t.url.startsWith('brave://'))
+      .map(t => ({ id: t.id, url: t.url, title: t.title, active: t.active }));
+  }
+
   const tab = await findTargetTab(params.site);
   if (!tab || !tab.id) {
     throw new Error('No matching browser tab found.');

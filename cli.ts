@@ -23,6 +23,8 @@ Commands:
                             --model <name>      Select model name
                             --agent             Enable Flow Agent mode
                             --no-agent          Disable Flow Agent mode
+  image [options]         Quick switch to Image mode (alias for config --mode image)
+  video [options]         Quick switch to Video mode (alias for config --mode video)
   config [options]        Configure Google Flow generation settings without prompting
                           Options:
                             --agent             Enable Agent mode
@@ -33,9 +35,12 @@ Commands:
                             --model <name>      Select model (e.g. "Veo", "Imagen", "Nano Banana")
   state                   Inspect active Google Flow toggles, modes, and prompt box readiness
   open-project            Open or create a Google Flow project to reveal the prompt box
-  scan-media              Scan images/videos generated on the active tab
-  list-tabs               List open web tabs in Chrome
+  browsers                List all currently connected browser instances
+  list-tabs               List open web tabs in Chrome / Brave
   help                    Show this help message
+
+Global Options:
+  --browser <number>      Target a specific browser instance (e.g. 1, 2 from 'bun run cli browsers')
 `);
 }
 async function waitForConnection(bridge: BridgeHost, maxWaitMs = 30000): Promise<void> {
@@ -80,19 +85,26 @@ async function main() {
   try {
     await waitForConnection(bridge);
 
+    const explicitBrowser = args.find((a, idx) => a === '--browser' ? args[idx + 1] : undefined);
+    const targetBrowser = explicitBrowser || '1';
     switch (command) {
+      case 'browsers': {
+        const list = await bridge.getConnectedBrowsers();
+        console.log(JSON.stringify(list, null, 2));
+        break;
+      }
+
       case 'detect': {
-        const result = await bridge.sendAction('detect');
+        const result = await bridge.sendAction('detect', {}, 30000, targetBrowser);
         console.log(JSON.stringify(result, null, 2));
         break;
       }
 
       case 'list-tabs': {
-        const result = await bridge.sendAction('list_tabs');
+        const result = await bridge.sendAction('list_tabs', {}, 30000, targetBrowser);
         console.log(JSON.stringify(result, null, 2));
         break;
       }
-
       case 'prompt': {
         const promptText = args[0];
         if (!promptText) {
@@ -126,18 +138,28 @@ async function main() {
 
         if (Object.keys(configOptions).length > 0) {
           console.log('Applying generation options:', configOptions);
-          const cfgRes = await bridge.sendAction('flow_config', { options: configOptions, site });
+          const cfgRes = await bridge.sendAction('flow_config', { options: configOptions, site }, 30000, targetBrowser);
           console.log('Configuration result:', JSON.stringify(cfgRes, null, 2));
         }
 
         console.log(`Sending prompt to ${site}...`);
-        const result = await bridge.sendAction('send_prompt', { prompt: promptText, site, autoSend });
+        const result = await bridge.sendAction('send_prompt', { prompt: promptText, site, autoSend }, 30000, targetBrowser);
         console.log(JSON.stringify(result, null, 2));
         break;
       }
 
+      case 'image':
+      case 'video':
       case 'config': {
         const configOptions: Record<string, unknown> = {};
+        if (command === 'image') {
+          configOptions.mode = 'image';
+          configOptions.agent = false;
+        }
+        if (command === 'video') {
+          configOptions.mode = 'video';
+          configOptions.agent = false;
+        }
         let site = 'Google Flow';
 
         for (let i = 0; i < args.length; i++) {
@@ -159,36 +181,36 @@ async function main() {
         }
 
         console.log('Applying Google Flow settings:', configOptions);
-        const result = await bridge.sendAction('flow_config', { options: configOptions, site });
+        const result = await bridge.sendAction('flow_config', { options: configOptions, site }, 30000, targetBrowser);
         console.log(JSON.stringify(result, null, 2));
         break;
       }
 
       case 'state': {
-        const result = await bridge.sendAction('flow_state');
+        const result = await bridge.sendAction('flow_state', {}, 30000, targetBrowser);
         console.log(JSON.stringify(result, null, 2));
         break;
       }
 
       case 'scan-media': {
-        const result = await bridge.sendAction('scan_media');
+        const result = await bridge.sendAction('scan_media', {}, 30000, targetBrowser);
         console.log(JSON.stringify(result, null, 2));
         break;
       }
       case 'open-project': {
         console.log('Opening or creating Google Flow project...');
-        const result = await bridge.sendAction('open_flow_project');
+        const result = await bridge.sendAction('open_flow_project', {}, 30000, targetBrowser);
         console.log(JSON.stringify(result, null, 2));
         break;
       }
-
 
       case 'upscale': {
         console.log('Requesting Google Flow video upscale...');
-        const result = await bridge.sendAction('upscale_flow');
+        const result = await bridge.sendAction('upscale_flow', {}, 30000, targetBrowser);
         console.log(JSON.stringify(result, null, 2));
         break;
       }
+
 
       default: {
         console.error(`Unknown command: ${command}`);

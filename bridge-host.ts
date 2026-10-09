@@ -4,6 +4,7 @@ export interface BridgeRequest {
   id: string;
   action: string;
   params?: Record<string, unknown>;
+  targetBrowserId?: string;
 }
 
 export interface BridgeResponse {
@@ -11,16 +12,26 @@ export interface BridgeResponse {
   success: boolean;
   data?: unknown;
   error?: string;
+  browserId?: string;
+}
+
+export interface ConnectedBrowser {
+  id: string;
+  ws: WebSocket;
+  connectedAt: number;
 }
 
 export class BridgeHost {
   private wss: WebSocketServer | null = null;
   private clientWs: WebSocket | null = null;
   private isServer = false;
+  private browserMap = new Map<string, ConnectedBrowser>();
+  private wsToBrowserId = new Map<WebSocket, string>();
   private pendingRequests = new Map<string, {
     resolve: (data: unknown) => void;
     reject: (err: Error) => void;
     timer: NodeJS.Timeout;
+    answered: boolean;
   }>();
 
   constructor(private port: number = 9988) {}
@@ -28,11 +39,12 @@ export class BridgeHost {
   async start(): Promise<void> {
     try {
       const { promise, resolve, reject } = Promise.withResolvers<void>();
-      const server = new WebSocketServer({ port: this.port, host: '127.0.0.1' });
+      const server = new WebSocketServer({ port: this.port });
 
       server.on('listening', () => {
         this.wss = server;
         this.isServer = true;
+        console.error(`[BridgeServer] Listening on port ${this.port} (0.0.0.0 & 127.0.0.1)`);
         resolve();
       });
 
@@ -40,8 +52,9 @@ export class BridgeHost {
         reject(err);
       });
 
-      server.on('connection', (ws) => {
-        this.clientWs = ws;
+      server.on('connection', (ws, req) => {
+        const remote = req?.socket?.remoteAddress || 'unknown';
+        console.error(`[BridgeServer] Client connected from ${remote}`);
         this.setupSocketHandlers(ws);
       });
 
@@ -49,8 +62,6 @@ export class BridgeHost {
     } catch (err: unknown) {
       const isAddrInUse = err && typeof err === 'object' && 'code' in err && err.code === 'EADDRINUSE';
       if (isAddrInUse) {
-        // Port 9988 is already running (e.g. background server or another CLI)
-        // Connect to the existing server as an inter-process bridge client
         await this.connectToExistingServer();
       } else {
         throw err;
@@ -81,28 +92,83 @@ export class BridgeHost {
     ws.on('message', (data) => {
       try {
         const msg = JSON.parse(data.toString());
-        if (msg.type === 'REGISTER') return;
 
-        // If this is a server forwarding between extension and CLI clients
-        if (this.isServer && msg.id) {
-          if (this.wss) {
-            for (const client of this.wss.clients) {
-              if (client !== ws && client.readyState === WebSocket.OPEN) {
-                client.send(data.toString());
+        if (msg.type === 'REGISTER') {
+          if (msg.client === 'chrome-extension' || msg.client === 'prompt-pilot-client') {
+            // Find the lowest available number (1, 2, 3...)
+            let index = 1;
+            while (this.browserMap.has(String(index))) {
+              index++;
+            }
+            const bId = String(index);
+            this.browserMap.set(bId, { id: bId, ws, connectedAt: Date.now() });
+            this.wsToBrowserId.set(ws, bId);
+            console.error(`[BridgeServer] Registered browser instance: ${bId} (total active: ${this.browserMap.size})`);
+          }
+          return;
+        }
+
+        if (this.isServer) {
+          // Internal server actions (e.g. list_browsers)
+          if (msg.action === 'list_browsers') {
+            const list = Array.from(this.browserMap.keys());
+            ws.send(JSON.stringify({ id: msg.id, success: true, data: list }));
+            return;
+          }
+
+          // If message is a request from CLI client
+          if (msg.action) {
+            const targetId = msg.targetBrowserId || msg.params?.browser;
+            if (targetId && this.browserMap.has(targetId)) {
+              const target = this.browserMap.get(targetId);
+              if (target && target.ws.readyState === WebSocket.OPEN) {
+                target.ws.send(data.toString());
+              }
+            } else {
+              // Send to all connected extension instances
+              for (const [, item] of this.browserMap) {
+                if (item.ws !== ws && item.ws.readyState === WebSocket.OPEN) {
+                  item.ws.send(data.toString());
+                }
+              }
+            }
+          } else if (msg.id && (msg.success !== undefined || msg.error !== undefined)) {
+            // Attach browserId to response
+            const senderId = this.wsToBrowserId.get(ws);
+            if (senderId && typeof msg === 'object') {
+              msg.browserId = senderId;
+            }
+            if (this.wss) {
+              const out = JSON.stringify(msg);
+              for (const client of this.wss.clients) {
+                if (client !== ws && client.readyState === WebSocket.OPEN) {
+                  client.send(out);
+                }
               }
             }
           }
         }
 
+        // Handle pending requests
         if (msg.id && this.pendingRequests.has(msg.id)) {
           const pending = this.pendingRequests.get(msg.id)!;
-          this.pendingRequests.delete(msg.id);
-          clearTimeout(pending.timer);
+          if (pending.answered) return;
 
           if (msg.success) {
-            pending.resolve(msg.data);
+            pending.answered = true;
+            this.pendingRequests.delete(msg.id);
+            clearTimeout(pending.timer);
+            const bId = msg.browserId || this.wsToBrowserId.get(ws);
+            const enriched = (msg.data && typeof msg.data === 'object') ? { ...msg.data, browserId: bId } : msg.data;
+            pending.resolve(enriched);
           } else {
-            pending.reject(new Error(msg.error || 'Request failed'));
+            const remaining = this.browserMap.size;
+            if (remaining <= 1) {
+              pending.answered = true;
+              this.pendingRequests.delete(msg.id);
+              clearTimeout(pending.timer);
+              pending.reject(new Error(msg.error || 'Request failed'));
+            }
           }
         }
       } catch {
@@ -111,23 +177,43 @@ export class BridgeHost {
     });
 
     ws.on('close', () => {
+      const bId = this.wsToBrowserId.get(ws);
+      if (bId) {
+        this.browserMap.delete(bId);
+        this.wsToBrowserId.delete(ws);
+        console.error(`[BridgeServer] Disconnected browser instance: ${bId} (remaining: ${this.browserMap.size})`);
+      }
       if (this.clientWs === ws) {
         this.clientWs = null;
       }
     });
   }
 
+  async getConnectedBrowsers(): Promise<string[]> {
+    if (this.isServer) {
+      return Array.from(this.browserMap.keys());
+    }
+    const res = await this.sendAction('list_browsers');
+    return Array.isArray(res) ? res : [];
+  }
+
   isConnected(): boolean {
+    if (this.isServer) {
+      for (const [, item] of this.browserMap) {
+        if (item.ws.readyState === WebSocket.OPEN) return true;
+      }
+      return false;
+    }
     return this.clientWs !== null && this.clientWs.readyState === WebSocket.OPEN;
   }
 
-  sendAction(action: string, params: Record<string, unknown> = {}, timeoutMs: number = 30000): Promise<unknown> {
+  sendAction(action: string, params: Record<string, unknown> = {}, timeoutMs: number = 30000, targetBrowserId?: string): Promise<unknown> {
     if (!this.isConnected()) {
       return Promise.reject(new Error('Extension is not connected. Make sure Chrome/Brave is open with the Prompt Pilot extension enabled.'));
     }
 
     const id = `req_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-    const payload: BridgeRequest = { id, action, params };
+    const payload: BridgeRequest = { id, action, params, targetBrowserId };
     const { promise, resolve, reject } = Promise.withResolvers<unknown>();
 
     const timer = setTimeout(() => {
@@ -135,8 +221,25 @@ export class BridgeHost {
       reject(new Error(`Action '${action}' timed out after ${timeoutMs}ms`));
     }, timeoutMs);
 
-    this.pendingRequests.set(id, { resolve, reject, timer });
-    this.clientWs!.send(JSON.stringify(payload));
+    this.pendingRequests.set(id, { resolve, reject, timer, answered: false });
+
+    const raw = JSON.stringify(payload);
+    if (this.isServer) {
+      if (targetBrowserId && this.browserMap.has(targetBrowserId)) {
+        const item = this.browserMap.get(targetBrowserId)!;
+        if (item.ws.readyState === WebSocket.OPEN) {
+          item.ws.send(raw);
+        }
+      } else {
+        for (const [, item] of this.browserMap) {
+          if (item.ws.readyState === WebSocket.OPEN) {
+            item.ws.send(raw);
+          }
+        }
+      }
+    } else if (this.clientWs && this.clientWs.readyState === WebSocket.OPEN) {
+      this.clientWs.send(raw);
+    }
 
     return promise;
   }

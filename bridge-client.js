@@ -71,21 +71,23 @@
 
   async function findTargetTab(siteFilter) {
     const tabs = await chrome.tabs.query({});
+    const webTabs = tabs.filter(t => t.url && !t.url.startsWith('chrome://') && !t.url.startsWith('brave://') && !t.url.startsWith('edge://'));
+
     if (siteFilter) {
       const filter = String(siteFilter).toLowerCase();
-      const matched = tabs.find(t => (t.url || '').toLowerCase().includes(filter) || (t.title || '').toLowerCase().includes(filter));
+      const matched = webTabs.find(t => (t.url || '').toLowerCase().includes(filter) || (t.title || '').toLowerCase().includes(filter));
       if (matched) return matched;
     }
 
-    const [active] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
-    if (active && active.url && !active.url.startsWith('chrome://')) {
-      return active;
-    }
+    // Check any active tab in any window
+    const active = webTabs.find(t => t.active);
+    if (active) return active;
 
-    const flowTab = tabs.find(t => /(flow\.google|labs\.google\/fx\/tools\/flow)/i.test(t.url || ''));
+    // Fallback to flow.google or labs.google
+    const flowTab = webTabs.find(t => /(flow\.google|labs\.google\/fx\/tools\/flow)/i.test(t.url || ''));
     if (flowTab) return flowTab;
 
-    return tabs.find(t => t.url && !t.url.startsWith('chrome://'));
+    return webTabs[0] || null;
   }
 
   function isGoogleFlowUrl(urlStr) {
@@ -158,6 +160,13 @@
   }
 
   async function executeAction(action, params) {
+    if (action === 'list_tabs') {
+      const tabs = await chrome.tabs.query({});
+      return tabs
+        .filter(t => t.url && !t.url.startsWith('chrome://') && !t.url.startsWith('brave://'))
+        .map(t => ({ id: t.id, url: t.url, title: t.title, active: t.active }));
+    }
+
     const tab = await findTargetTab(params.site);
     if (!tab || !tab.id) {
       throw new Error('No matching browser tab found.');

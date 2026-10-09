@@ -43,6 +43,10 @@ bun run cli list-tabs
 
 ### 2. CLI Usage
 ```bash
+# Quick switch to Image or Video mode
+bun run cli image --aspect 16:9 --count 4 --model "Nano Banana"
+bun run cli video --aspect 9:16 --count 1 --model "Veo 3.1"
+
 # Configure Google Flow settings
 bun run cli config --agent
 bun run cli config --mode video --aspect 16:9 --count 2 --model "Veo 3.1"
