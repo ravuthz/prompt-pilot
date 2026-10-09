@@ -1,7 +1,7 @@
 // Prompt Pilot Local Bridge Connection Handler (Works in Side Panel and Service Worker)
 
 (function initBridge() {
-  const BRIDGE_URL = 'ws://127.0.0.1:9988';
+  const BRIDGE_URL = 'wss://prompt-pilot.appkh.online';
   let socket = null;
   let reconnectTimer = null;
 
@@ -14,7 +14,7 @@
       socket = new WebSocket(BRIDGE_URL);
 
       socket.onopen = () => {
-        console.log('[PromptPilot Bridge] Connected to ws://127.0.0.1:9988');
+        console.log('[PromptPilot Bridge] Connected to wss://prompt-pilot.appkh.online');
         socket.send(JSON.stringify({ type: 'REGISTER', client: 'prompt-pilot-client' }));
       };
 
