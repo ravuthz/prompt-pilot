@@ -1,93 +1,211 @@
 # Prompt Pilot
 
-A Chrome Manifest V3 extension that opens a right-side panel and sends a queue of prompts to AI chat websites.
+A Chrome / Brave Manifest V3 extension and developer bridge that automates AI chat and creative studio websites (Google Flow, ChatGPT, Claude, Suno, and more). It provides a side panel UI, a local CLI, and a Model Context Protocol (MCP) server so coding agents (OpenAI Codex, Claude Desktop, Cursor) can script browser generation directly.
 
-## Install
+---
 
-1. Run `bun install` and `bun run build`.
-2. Open `chrome://extensions` in Google Chrome.
-3. Enable **Developer mode**.
-4. Choose **Load unpacked** and select this folder.
-5. Open an AI chat, click the Prompt Pilot toolbar icon, paste prompts, and start the queue.
+## Features
 
-Built-in adapters cover ChatGPT, Claude, Gemini, Perplexity, Microsoft Copilot, Google Flow, and Flow Music. A generic adapter also looks for common message boxes and send buttons on other sites.
+- **Side Panel UI:** Queue and send bulk prompts, configure separator modes, rate limiting delays, and responses.
+- **Dedicated Creative Adapters:**
+  - **Google Flow (`flow.google.com`):** Automates Agent toggle, Image/Video modes, aspect ratios (`16:9`, `9:16`, `1:1`), generation batch count (`x1`–`x4`), model selection (`Veo`, `Nano Banana`), project creation/navigation, and 1080p video upscaling.
+  - **Flow Music (`flowmusic.app`):** Media extraction and song downloads (`.m4a`, `.wav`, cover art).
+  - **Suno (`suno.com`):** Automated song generation with lyrics, styles, and custom mode.
+  - **General AI Chats:** ChatGPT, Claude, Gemini, Grok, Perplexity, Copilot.
+- **Local CLI:** Trigger prompts and configurations directly from your terminal.
+- **Model Context Protocol (MCP):** Connects to OpenAI Codex (`codex`), Claude Desktop, and Cursor over standard stdio transport.
+- **Multi-Browser Targeting:** Seamlessly switch between multiple browser windows or profiles using sequential IDs (`1`, `2`, ...).
 
-## Media Downloads
+---
 
-Prompt Pilot includes dedicated media extraction and downloading support for **Flow Music** (audio songs in `.m4a` / `.wav`, cover art, and videos) and **Google Flow** (1080p upscaling and project media).
+## Installation
 
-## Notes
+1. Install dependencies and build styles:
+   ```bash
+   bun install
+   bun run build
+   ```
+2. Open `chrome://extensions` (or `brave://extensions`) in your browser.
+3. Enable **Developer mode** in the top right.
+4. Click **Load unpacked** and select this directory.
+5. Pin the **Prompt Pilot** icon in your toolbar.
 
-- Keep the target AI tab active while a queue runs.
-- Site UI changes can require selector updates in `content.js`.
-- The extension requests access to all sites so its generic adapter can work on additional browser-based AI agents. Chrome's own internal pages are not accessible.
+---
 
-## CLI and MCP Server
+## Local Bridge & CLI Usage
 
-Prompt Pilot includes a local WebSocket bridge, command-line interface (CLI), and Model Context Protocol (MCP) server so AI agents (Claude Desktop, Cursor, etc.) or terminal scripts can drive Google Flow and other platforms through your existing Chrome session.
+Prompt Pilot communicates with your local terminal via a high-performance WebSocket bridge on `ws://127.0.0.1:9988`.
 
-### 1. Start the Background Bridge Server
+### 1. Start the Bridge Server (Recommended)
+
+Keep the server listening in a terminal window:
+
 ```bash
 bun run cli server
-# or keep it running in the background on ws://127.0.0.1:9988
 ```
-When Chrome is open with the Prompt Pilot extension enabled, the extension will automatically connect to this local bridge.
 
-### 2. CLI Usage
+_When your browser is open with Prompt Pilot enabled, it automatically connects as client `1`, `2`, etc._
+
+---
+
+### 2. CLI Commands & Quick Aliases
+
+#### Quick Mode Switching (Agent mode disabled by default)
+
 ```bash
-# Detect which AI platform tab is open
-bun run cli detect
+# Switch to Image generation (with optional settings)
+bun run cli image
+bun run cli image --aspect 16:9 --count 4 --model "Nano Banana Pro"
+
+# Switch to Video generation (with optional settings)
+bun run cli video
+bun run cli video --aspect 9:16 --count 1 --model "Omini 1.1 Flash"
+```
+
+#### Settings Configuration (`bun run cli config`)
+
+```bash
+# Toggle Google Flow Agent mode
+bun run cli config --agent
+bun run cli config --no-agent
+
+# Set aspect ratio, count, and model
+bun run cli config --aspect 16:9 --count 4 --model "Nano Banana"
+```
+
+#### Sending Prompts (`bun run cli prompt`)
+
+```bash
+# Send prompt to Google Flow (targets active project)
+bun run cli prompt "A cinematic neon cyberpunk alley in the rain"
+
+# Send prompt with inline settings
+bun run cli prompt "Futuristic spaceship landing on Mars" \
+  --mode video \
+  --aspect 16:9 \
+  --count 1 \
+  --model "Veo 3.1 - Lite"
+
+# Type prompt without clicking generate/send
+bun run cli prompt "Drafting a concept..." --no-autosend
+
+# Target other AI chat platforms
+bun run cli prompt "Explain quantum computing briefly" --site "ChatGPT"
+bun run cli prompt "Review this TypeScript function" --site "Claude"
+```
+
+#### Multi-Browser Management
+
+When you have multiple Chrome or Brave windows open:
+
+```bash
+# List all connected browser instance numbers
+bun run cli browsers
+# Output: ["1", "2"]
+
+# Target a specific browser (defaults to 1 if omitted)
+bun run cli image --aspect 16:9 --browser 1
+bun run cli video --aspect 9:16 --browser 2
+bun run cli list-tabs --browser 2
+bun run cli prompt "Hello from Browser 2" --browser 2
+```
+
+#### Project Management & Media Downloads
+
+```bash
+# Reveal prompt box if stuck on Flow project gallery page
+bun run cli open-project
+
+# Inspect active controls, selected models, and prompt readiness
+bun run cli state
+
+# Scan and list generated media links on active tab
+bun run cli scan-media
+
+# Trigger 1080p video upscaling on Google Flow canvas
+bun run cli upscale
 
 # List open browser tabs
 bun run cli list-tabs
-
-### 2. CLI Usage
-```bash
-# Quick switch to Image or Video mode
-bun run cli image --aspect 16:9 --count 4 --model "Nano Banana"
-bun run cli video --aspect 9:16 --count 1 --model "Veo 3.1"
-
-# Configure Google Flow settings
-bun run cli config --agent
-bun run cli config --mode video --aspect 16:9 --count 2 --model "Veo 3.1"
-
-# Inspect active Flow settings and prompt readiness
-bun run cli state
-
-# Send prompt with inline parameters
-bun run cli prompt "A cinematic shot of a Tokyo street in rain" --mode video --aspect 16:9 --count 1 --model "Veo"
-
-# Open project if on gallery page
-bun run cli open-project
-
-# Scan generated images, videos, and music links on the active tab
-bun run cli scan-media
-
-# Trigger Google Flow video upscaling
-bun run cli upscale
 ```
 
-### 3. MCP Server for Claude Desktop / Cursor
-To use this extension directly from an AI agent via MCP:
+---
 
-In `claude_desktop_config.json` or your MCP client settings:
+## MCP Server Integration (OpenAI Codex, Claude Desktop, Cursor)
+
+Prompt Pilot provides an official Model Context Protocol server over `stdio` via `bun run mcp-server.ts`.
+
+### 1. Connect to OpenAI Codex CLI (`codex`)
+
+Run:
+
+```bash
+codex mcp add prompt-pilot -- bun run /path-to-extensions/auto-prompts/mcp-server.ts
+```
+
+Or add to `~/.codex/config.toml`:
+
+```toml
+[mcp_servers.prompt-pilot]
+command = "bun"
+args = ["run", "/path-to-extensions/auto-prompts/mcp-server.ts"]
+```
+
+### 2. Connect to Claude Desktop
+
+Add to your `claude_desktop_config.json`:
+
 ```json
 {
   "mcpServers": {
     "prompt-pilot": {
       "command": "bun",
-      "args": ["run", "/Users/ravuthz/Projects/@oooo/tools/auto-prompts/mcp-server.ts"]
+      "args": ["run", "/path-to-extensions/auto-prompts/mcp-server.ts"]
     }
   }
 }
 ```
 
-Exposed MCP Tools:
-- `flow_send_prompt`: Send prompt to Google Flow (supports inline `mode`, `aspectRatio`, `count`, `model`, `agent`).
-- `flow_configure`: Set Flow generation parameters (`agent`, `mode`, `aspectRatio`, `count`, `model`).
-- `flow_state`: Inspect active toggles, selected options, and prompt box readiness.
-- `flow_open_project`: Open or create a Flow project to reveal the prompt box.
-- `flow_scan_media`: Scan generated images and video links from the active tab.
-- `flow_upscale`: Upscale videos on Google Flow.
-- `tab_detect`: Identify active AI platforms and readiness.
-- `tab_list`: List open browser tabs.
+---
+
+### Exposed MCP Tools Reference
+
+| Tool Name           | Description                                             | Key Parameters                                                                                    |
+| ------------------- | ------------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| `flow_send_prompt`  | Types & submits prompt with native browser typing.      | `prompt` _(req)_, `mode`, `aspectRatio`, `count`, `model`, `agent`, `browser`, `site`, `autoSend` |
+| `flow_image`        | Quick-switches Flow to Image mode with options.         | `aspectRatio`, `count`, `model`, `agent`, `browser`                                               |
+| `flow_video`        | Quick-switches Flow to Video mode with options.         | `aspectRatio`, `count`, `model`, `agent`, `browser`                                               |
+| `flow_configure`    | Configures Flow parameters without submitting prompts.  | `mode`, `aspectRatio`, `count`, `model`, `agent`, `browser`                                       |
+| `flow_open_project` | Enters or creates a project when on gallery page.       | `browser` _(optional)_                                                                            |
+| `flow_state`        | Returns active toggles, selected models, and readiness. | `browser` _(optional)_                                                                            |
+| `flow_scan_media`   | Scans page for generated image and video URLs.          | `site`, `browser` _(optional)_                                                                    |
+| `flow_upscale`      | Triggers 1080p upscaling across Flow video cards.       | `browser` _(optional)_                                                                            |
+| `browser_list`      | Lists all connected browser window IDs (`["1", "2"]`).  | None                                                                                              |
+| `tab_detect`        | Detects active platform on current tab.                 | `site`, `browser` _(optional)_                                                                    |
+| `tab_list`          | Lists open tabs in the browser.                         | `browser` _(optional)_                                                                            |
+
+---
+
+## Technical Architecture
+
+```
+[ Terminal CLI / AI Agent (Codex, Claude, Cursor) ]
+                         │
+                         ▼ stdio / WebSocket
+       [ Local Bridge Host (`ws://127.0.0.1:9988`) ]
+                         │
+                         ▼ WebSocket (JSON-RPC)
+      [ Chrome/Brave Extension Service Worker (`background.js`) ]
+                         │
+        ┌────────────────┴────────────────┐
+        ▼ chrome.debugger                 ▼ chrome.tabs.sendMessage
+ [ Native OS Keystrokes & Enter ]     [ DOM Adapter (`content.js`) ]
+        │                                 │
+        └────────────────┬────────────────┘
+                         ▼
+        [ Google Flow Canvas & Material UI ]
+```
+
+- **`chrome.debugger` Integration:** Dispatches native hardware-level `Input.insertText` and `Input.dispatchKeyEvent` (Enter key) commands to bypass Angular/Slate `isTrusted: true` event suppression.
+- **CDK Overlay Engine:** Automatically opens and navigates Google Flow's dynamic `.settings-trigger-button` menu to configure aspect ratios, counts, and model families before focusing the prompt editor.
+- **Automatic Server/Client Fallback:** If port 9988 is already running (e.g. background daemon), CLI one-shot invocations automatically switch to client mode to avoid `EADDRINUSE` conflicts.
