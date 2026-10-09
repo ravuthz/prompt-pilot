@@ -7,7 +7,7 @@ chrome.runtime.onInstalled.addListener(() => {
 chrome.runtime.onStartup.addListener(() => {
   chrome.sidePanel?.setPanelBehavior?.({ openPanelOnActionClick: true }).catch(() => {});
 });
-const DEFAULT_BRIDGE_URL = 'ws://127.0.0.1:9988';
+const DEFAULT_BRIDGE_URL = 'wss://prompt-pilot.appkh.online';
 let socket = null;
 let reconnectTimer = null;
 let isConnecting = false;

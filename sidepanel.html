@@ -235,7 +235,7 @@
             </div>
             <label class="form-control">
               <span class="label pb-1 text-xs font-medium opacity-70">Bridge WebSocket URL</span>
-              <input id="bridgeUrlInput" type="text" class="input input-sm w-full font-mono text-xs" placeholder="ws://127.0.0.1:9988 or wss://prompt.yourdomain.com" />
+              <input id="bridgeUrlInput" type="text" class="input input-sm w-full font-mono text-xs" placeholder="wss://prompt-pilot.appkh.online or ws://127.0.0.1:9988" />
             </label>
             <label class="form-control">
               <span class="label pb-1 text-xs font-medium opacity-70">Security Auth Token (Optional)</span>
@@ -248,7 +248,7 @@
           </div>
         </section>
         <section class="rounded-box border border-base-300 bg-base-100 p-3 text-xs leading-relaxed opacity-70">
-          By default, Prompt Pilot listens locally at <code class="font-mono">ws://127.0.0.1:9988</code>. If exposing via Cloudflare Tunnel, set your secure <code class="font-mono">wss://...</code> URL here.
+          Default remote endpoint is <code class="font-mono">wss://prompt-pilot.appkh.online</code>. You can also point to a local bridge at <code class="font-mono">ws://127.0.0.1:9988</code>.
         </section>
       </div>
     </main>

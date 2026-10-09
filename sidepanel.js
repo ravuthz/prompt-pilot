@@ -896,11 +896,11 @@ els.downloadsTab.addEventListener('click', () => switchPanel('downloads'));
 els.bridgeTab?.addEventListener('click', async () => {
   switchPanel('bridge');
   const stored = await chrome.storage.local.get(['promptPilotBridgeUrl', 'promptPilotBridgeToken']);
-  if (els.bridgeUrlInput) els.bridgeUrlInput.value = stored.promptPilotBridgeUrl || 'ws://127.0.0.1:9988';
+  if (els.bridgeUrlInput) els.bridgeUrlInput.value = stored.promptPilotBridgeUrl || 'wss://prompt-pilot.appkh.online';
   if (els.bridgeTokenInput) els.bridgeTokenInput.value = stored.promptPilotBridgeToken || '';
 });
 els.saveBridgeConfigBtn?.addEventListener('click', async () => {
-  const url = els.bridgeUrlInput?.value.trim() || 'ws://127.0.0.1:9988';
+  const url = els.bridgeUrlInput?.value.trim() || 'wss://prompt-pilot.appkh.online';
   const token = els.bridgeTokenInput?.value.trim() || '';
   await chrome.storage.local.set({ promptPilotBridgeUrl: url, promptPilotBridgeToken: token });
   if (els.bridgeNotice) {
