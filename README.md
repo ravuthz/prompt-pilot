@@ -131,6 +131,65 @@ bun run cli list-tabs
 
 ---
 
+## Remote Access via Cloudflare Tunnel & Token Authentication
+
+You can control your local browser remotely over the internet through your custom domain via **Cloudflare Tunnel (`cloudflared`)** with encrypted WebSockets and token authentication.
+
+### 1. Configure Cloudflare Tunnel
+On your machine running the browser:
+```bash
+# Install cloudflared (macOS)
+brew install cloudflared
+
+# Authenticate with your Cloudflare account
+cloudflared tunnel login
+
+# Create tunnel
+cloudflared tunnel create prompt-pilot
+
+# Route your subdomain to the tunnel
+cloudflared tunnel route dns prompt-pilot prompt.yourdomain.com
+```
+
+In `~/.cloudflared/config.yml`:
+```yaml
+tunnel: <YOUR_TUNNEL_ID>
+credentials-file: /Users/<USER>/.cloudflared/<YOUR_TUNNEL_ID>.json
+
+ingress:
+  - hostname: prompt.yourdomain.com
+    service: ws://localhost:9988
+  - service: http_status:404
+```
+Run the tunnel:
+```bash
+cloudflared tunnel run prompt-pilot
+```
+
+### 2. Configure Extension for Remote Bridge
+1. Open the Prompt Pilot Side Panel.
+2. Click the **Remote Bridge** tab (arrow icon).
+3. Set **Bridge WebSocket URL**: `wss://prompt.yourdomain.com`.
+4. *(Optional)* Set **Security Auth Token**: `my-secret-token`.
+5. Click **Save & Reconnect**.
+
+### 3. Remote CLI Usage
+Run commands from any laptop or terminal worldwide:
+```bash
+# Using CLI flags
+bun run cli image --aspect 16:9 --remote "wss://prompt.yourdomain.com" --token "my-secret-token"
+bun run cli prompt "Cyberpunk city" --remote "wss://prompt.yourdomain.com" --token "my-secret-token"
+
+# Or set environment variables
+export PROMPT_PILOT_REMOTE="wss://prompt.yourdomain.com"
+export PROMPT_PILOT_TOKEN="my-secret-token"
+
+bun run cli image --aspect 16:9
+bun run cli prompt "Cyberpunk city"
+```
+
+---
+
 ## MCP Server Integration (OpenAI Codex, Claude Desktop, Cursor)
 
 Prompt Pilot provides an official Model Context Protocol server over `stdio` via `bun run mcp-server.ts`.

@@ -5,6 +5,7 @@ export interface BridgeRequest {
   action: string;
   params?: Record<string, unknown>;
   targetBrowserId?: string;
+  token?: string;
 }
 
 export interface BridgeResponse {
@@ -27,6 +28,9 @@ export class BridgeHost {
   private isServer = false;
   private browserMap = new Map<string, ConnectedBrowser>();
   private wsToBrowserId = new Map<WebSocket, string>();
+  private authenticatedSockets = new Set<WebSocket>();
+  private authToken: string = '';
+  private remoteUrl: string = '';
   private pendingRequests = new Map<string, {
     resolve: (data: unknown) => void;
     reject: (err: Error) => void;
@@ -34,9 +38,18 @@ export class BridgeHost {
     answered: boolean;
   }>();
 
-  constructor(private port: number = 9988) {}
+  constructor(private port: number = 9988, options: { token?: string; remoteUrl?: string } = {}) {
+    this.authToken = options.token || process.env.PROMPT_PILOT_TOKEN || '';
+    this.remoteUrl = options.remoteUrl || process.env.PROMPT_PILOT_REMOTE || '';
+  }
 
   async start(): Promise<void> {
+    // If a remote URL (e.g. wss://prompt.yourdomain.com) is specified, connect directly as remote client
+    if (this.remoteUrl) {
+      await this.connectToRemoteUrl(this.remoteUrl);
+      return;
+    }
+
     try {
       const { promise, resolve, reject } = Promise.withResolvers<void>();
       const server = new WebSocketServer({ port: this.port });
@@ -45,6 +58,9 @@ export class BridgeHost {
         this.wss = server;
         this.isServer = true;
         console.error(`[BridgeServer] Listening on port ${this.port} (0.0.0.0 & 127.0.0.1)`);
+        if (this.authToken) {
+          console.error(`[BridgeServer] Token authentication enabled.`);
+        }
         resolve();
       });
 
@@ -69,15 +85,15 @@ export class BridgeHost {
     }
   }
 
-  private async connectToExistingServer(): Promise<void> {
+  private async connectToRemoteUrl(url: string): Promise<void> {
     const { promise, resolve, reject } = Promise.withResolvers<void>();
-    const ws = new WebSocket(`ws://127.0.0.1:${this.port}`);
+    const ws = new WebSocket(url);
 
     ws.on('open', () => {
       this.clientWs = ws;
       this.isServer = false;
       this.setupSocketHandlers(ws);
-      ws.send(JSON.stringify({ type: 'REGISTER', client: 'cli-worker' }));
+      ws.send(JSON.stringify({ type: 'REGISTER', client: 'cli-worker', token: this.authToken }));
       resolve();
     });
 
@@ -88,14 +104,52 @@ export class BridgeHost {
     return promise;
   }
 
+  private async connectToExistingServer(): Promise<void> {
+    const { promise, resolve, reject } = Promise.withResolvers<void>();
+    const ws = new WebSocket(`ws://127.0.0.1:${this.port}`);
+
+    ws.on('open', () => {
+      this.clientWs = ws;
+      this.isServer = false;
+      this.setupSocketHandlers(ws);
+      ws.send(JSON.stringify({ type: 'REGISTER', client: 'cli-worker', token: this.authToken }));
+      resolve();
+    });
+
+    ws.on('error', (err) => {
+      reject(err);
+    });
+
+    return promise;
+  }
+
+  private checkAuth(ws: WebSocket, token?: string): boolean {
+    if (!this.authToken) return true;
+    if (this.authenticatedSockets.has(ws)) return true;
+    if (token === this.authToken) {
+      this.authenticatedSockets.add(ws);
+      return true;
+    }
+    return false;
+  }
+
   private setupSocketHandlers(ws: WebSocket) {
     ws.on('message', (data) => {
       try {
         const msg = JSON.parse(data.toString());
 
+        // Validate token if authentication is enabled
+        if (this.isServer && this.authToken && !this.checkAuth(ws, msg.token)) {
+          ws.send(JSON.stringify({
+            id: msg.id,
+            success: false,
+            error: 'Authentication failed: Invalid or missing token.'
+          }));
+          return;
+        }
+
         if (msg.type === 'REGISTER') {
           if (msg.client === 'chrome-extension' || msg.client === 'prompt-pilot-client') {
-            // Find the lowest available number (1, 2, 3...)
             let index = 1;
             while (this.browserMap.has(String(index))) {
               index++;
@@ -118,14 +172,12 @@ export class BridgeHost {
         }
 
         if (this.isServer) {
-          // Internal server actions (e.g. list_browsers)
           if (msg.action === 'list_browsers') {
             const list = Array.from(this.browserMap.keys());
             ws.send(JSON.stringify({ id: msg.id, success: true, data: list }));
             return;
           }
 
-          // If message is a request from CLI client
           if (msg.action) {
             const targetId = msg.targetBrowserId || msg.params?.browser;
             if (targetId && this.browserMap.has(targetId)) {
@@ -134,7 +186,6 @@ export class BridgeHost {
                 target.ws.send(data.toString());
               }
             } else {
-              // Send to all connected extension instances
               for (const [, item] of this.browserMap) {
                 if (item.ws !== ws && item.ws.readyState === WebSocket.OPEN) {
                   item.ws.send(data.toString());
@@ -142,7 +193,6 @@ export class BridgeHost {
               }
             }
           } else if (msg.id && (msg.success !== undefined || msg.error !== undefined)) {
-            // Attach browserId to response
             const senderId = this.wsToBrowserId.get(ws);
             if (senderId && typeof msg === 'object') {
               msg.browserId = senderId;
@@ -186,6 +236,7 @@ export class BridgeHost {
     });
 
     ws.on('close', () => {
+      this.authenticatedSockets.delete(ws);
       const bId = this.wsToBrowserId.get(ws);
       if (bId) {
         this.browserMap.delete(bId);
@@ -222,7 +273,13 @@ export class BridgeHost {
     }
 
     const id = `req_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-    const payload: BridgeRequest = { id, action, params, targetBrowserId };
+    const payload: BridgeRequest = {
+      id,
+      action,
+      params,
+      targetBrowserId,
+      token: this.authToken || undefined
+    };
     const { promise, resolve, reject } = Promise.withResolvers<unknown>();
 
     const timer = setTimeout(() => {

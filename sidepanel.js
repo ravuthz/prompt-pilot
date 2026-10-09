@@ -50,7 +50,13 @@ Object.assign(els, {
   scanMedia: document.querySelector('#scanMediaBtn'),
   toggleMedia: document.querySelector('#toggleMediaBtn'),
   upscaleMedia: document.querySelector('#upscaleMediaBtn'),
-  downloadMedia: document.querySelector('#downloadMediaBtn')
+  downloadMedia: document.querySelector('#downloadMediaBtn'),
+  bridgeTab: document.querySelector('#bridgeTab'),
+  bridgePanel: document.querySelector('#bridgePanel'),
+  bridgeUrlInput: document.querySelector('#bridgeUrlInput'),
+  bridgeTokenInput: document.querySelector('#bridgeTokenInput'),
+  bridgeNotice: document.querySelector('#bridgeNotice'),
+  saveBridgeConfigBtn: document.querySelector('#saveBridgeConfigBtn')
 });
 
 let stopped = false;
@@ -124,7 +130,8 @@ function switchPanel(panel) {
   const suno = panel === 'suno';
   const favorite = panel === 'favorites';
   const downloads = panel === 'downloads';
-  const queue = !suno && !favorite && !downloads;
+  const bridge = panel === 'bridge';
+  const queue = !suno && !favorite && !downloads && !bridge;
   els.queuePanel.classList.toggle('hidden', !queue);
   els.queuePanel.classList.toggle('flex', queue);
   els.sunoPanel.classList.toggle('hidden', !suno);
@@ -133,10 +140,13 @@ function switchPanel(panel) {
   els.favoritesPanel.classList.toggle('flex', favorite);
   els.downloadsPanel.classList.toggle('hidden', !downloads);
   els.downloadsPanel.classList.toggle('flex', downloads);
+  els.bridgePanel?.classList.toggle('hidden', !bridge);
+  els.bridgePanel?.classList.toggle('flex', bridge);
   els.queueTab.classList.toggle('tab-active', queue);
   els.sunoTab.classList.toggle('tab-active', suno);
   els.favoritesTab.classList.toggle('tab-active', favorite);
   els.downloadsTab.classList.toggle('tab-active', downloads);
+  els.bridgeTab?.classList.toggle('tab-active', bridge);
 }
 
 function favoriteGroup(url) {
@@ -883,7 +893,25 @@ els.sunoTab.addEventListener('click', () => switchPanel('suno'));
 els.queueTab.addEventListener('click', () => switchPanel('queue'));
 els.favoritesTab.addEventListener('click', () => switchPanel('favorites'));
 els.downloadsTab.addEventListener('click', () => switchPanel('downloads'));
-els.saveFavorite.addEventListener('click', saveCurrentFavorite);
+els.bridgeTab?.addEventListener('click', async () => {
+  switchPanel('bridge');
+  const stored = await chrome.storage.local.get(['promptPilotBridgeUrl', 'promptPilotBridgeToken']);
+  if (els.bridgeUrlInput) els.bridgeUrlInput.value = stored.promptPilotBridgeUrl || 'ws://127.0.0.1:9988';
+  if (els.bridgeTokenInput) els.bridgeTokenInput.value = stored.promptPilotBridgeToken || '';
+});
+els.saveBridgeConfigBtn?.addEventListener('click', async () => {
+  const url = els.bridgeUrlInput?.value.trim() || 'ws://127.0.0.1:9988';
+  const token = els.bridgeTokenInput?.value.trim() || '';
+  await chrome.storage.local.set({ promptPilotBridgeUrl: url, promptPilotBridgeToken: token });
+  if (els.bridgeNotice) {
+    els.bridgeNotice.className = 'alert alert-soft alert-success py-2.5 text-sm';
+    els.bridgeNotice.textContent = 'Configuration saved. Reloading bridge connection...';
+    els.bridgeNotice.classList.remove('hidden');
+    setTimeout(() => els.bridgeNotice?.classList.add('hidden'), 3500);
+  }
+  // Ask background worker to reconnect
+  chrome.runtime.reload();
+});
 els.scanMedia.addEventListener('click', scanMedia);
 els.mediaType.addEventListener('change', renderMedia);
 els.toggleMedia.addEventListener('click', () => {

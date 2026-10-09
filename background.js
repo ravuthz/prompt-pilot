@@ -7,26 +7,35 @@ chrome.runtime.onInstalled.addListener(() => {
 chrome.runtime.onStartup.addListener(() => {
   chrome.sidePanel?.setPanelBehavior?.({ openPanelOnActionClick: true }).catch(() => {});
 });
-
-const BRIDGE_URL = 'ws://127.0.0.1:9988';
+const DEFAULT_BRIDGE_URL = 'ws://127.0.0.1:9988';
 let socket = null;
 let reconnectTimer = null;
 let isConnecting = false;
 
-function connectBridge() {
+async function getBridgeConfig() {
+  const stored = await chrome.storage.local.get(['promptPilotBridgeUrl', 'promptPilotBridgeToken']);
+  return {
+    url: stored.promptPilotBridgeUrl || DEFAULT_BRIDGE_URL,
+    token: stored.promptPilotBridgeToken || ''
+  };
+}
+
+async function connectBridge() {
   if (socket && (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING)) {
     return;
   }
   isConnecting = true;
   try {
-    socket = new WebSocket(BRIDGE_URL);
+    const config = await getBridgeConfig();
+    socket = new WebSocket(config.url);
 
     socket.onopen = () => {
       isConnecting = false;
-      console.log('[PromptPilot Bridge] Connected to local bridge server.');
+      console.log(`[PromptPilot Bridge] Connected to ${config.url}`);
       socket.send(JSON.stringify({
         type: 'REGISTER',
-        client: 'chrome-extension'
+        client: 'chrome-extension',
+        token: config.token
       }));
     };
     socket.onmessage = async (event) => {

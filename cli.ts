@@ -41,6 +41,8 @@ Commands:
 
 Global Options:
   --browser <number>      Target a specific browser instance (e.g. 1, 2 from 'bun run cli browsers')
+  --remote <url>          Remote WebSocket bridge URL (e.g. wss://prompt.yourdomain.com)
+  --token <secret>        Shared authentication secret (or env PROMPT_PILOT_TOKEN)
 `);
 }
 async function waitForConnection(bridge: BridgeHost, maxWaitMs = 30000): Promise<void> {
@@ -70,18 +72,19 @@ async function main() {
     process.exit(0);
   }
 
-  const bridge = new BridgeHost(9988);
+  const remoteArg = args.find((a, idx) => a === '--remote' ? args[idx + 1] : undefined);
+  const tokenArg = args.find((a, idx) => a === '--token' ? args[idx + 1] : undefined);
+  const bridge = new BridgeHost(9988, { remoteUrl: remoteArg, token: tokenArg });
 
   if (command === 'server') {
     await bridge.start();
-    console.log('Prompt Pilot Bridge server listening on ws://127.0.0.1:9988');
+    console.log('Prompt Pilot Bridge server listening on port 9988');
     console.log('Ready for Prompt Pilot Chrome extension connections.');
     return;
   }
 
-  // CLI one-shot operations: start server and wait for connection
+  // CLI one-shot operations: connect or start server
   await bridge.start();
-
   try {
     await waitForConnection(bridge);
 
