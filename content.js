@@ -196,6 +196,289 @@
     return false;
   }
 
+  function getFlowComposerRoot() {
+    const current = adapter();
+    const input = findVisible(current.inputs);
+    return input?.closest('form, [class*="composer" i], [class*="prompt-box" i], [class*="prompt" i], div.relative') || document;
+  }
+
+  async function toggleFlowAgent(targetState) {
+    const root = getFlowComposerRoot();
+    const buttons = [...root.querySelectorAll('button, [role="button"], mat-button-toggle, [role="switch"]')].concat([...document.querySelectorAll('button, [role="button"], [role="switch"]')]).filter(visible);
+
+    const agentBtn = buttons.find((btn) => {
+      const text = (btn.textContent || '').trim().toLowerCase();
+      const aria = (btn.getAttribute('aria-label') || '').toLowerCase();
+      const title = (btn.getAttribute('title') || '').toLowerCase();
+      return /\bagent\b/i.test(text) || /\bagent\b/i.test(aria) || /\bagent\b/i.test(title);
+    });
+
+    if (!agentBtn) {
+      return { ok: false, error: 'Could not find Agent button or toggle in Google Flow.' };
+    }
+
+    const isSelected = agentBtn.getAttribute('aria-pressed') === 'true' ||
+                       agentBtn.getAttribute('aria-checked') === 'true' ||
+                       agentBtn.classList.contains('mat-button-toggle-checked') ||
+                       agentBtn.classList.contains('active') ||
+                       agentBtn.classList.contains('selected');
+
+    if (typeof targetState === 'boolean') {
+      if (isSelected === targetState) {
+        return { ok: true, agent: isSelected, changed: false };
+      }
+    }
+
+    clickElement(agentBtn);
+    await delay(300);
+
+    const newState = agentBtn.getAttribute('aria-pressed') === 'true' ||
+                     agentBtn.getAttribute('aria-checked') === 'true' ||
+                     agentBtn.classList.contains('mat-button-toggle-checked') ||
+                     agentBtn.classList.contains('active') ||
+                     agentBtn.classList.contains('selected') ||
+                     !isSelected;
+
+    return { ok: true, agent: newState, changed: true };
+  }
+
+  async function selectFlowMode(mode) {
+    const wanted = String(mode).toLowerCase(); // 'image' or 'video'
+    if (!['image', 'video'].includes(wanted)) {
+      return { ok: false, error: 'Mode must be either "image" or "video".' };
+    }
+
+    // Search inside the prompt box and settings overlay
+    const candidates = [...document.querySelectorAll('flow-base-prompt-box button, .cdk-overlay-container button, .mat-mdc-menu-panel button, [role="tab"], mat-button-toggle, mat-chip')].filter(visible);
+    const directBtn = candidates.find((btn) => {
+      const text = (btn.textContent || '').trim().toLowerCase();
+      const aria = (btn.getAttribute('aria-label') || '').toLowerCase();
+      return text === wanted || aria === wanted || text.startsWith(wanted) || aria.startsWith(wanted);
+    });
+
+    if (directBtn) {
+      clickElement(directBtn);
+      await delay(300);
+      return { ok: true, mode: wanted };
+    }
+
+    return { ok: false, error: `Could not switch to mode "${mode}".` };
+  }
+  function findSettingsTrigger() {
+    const promptBox = document.querySelector('flow-base-prompt-box');
+    if (promptBox) {
+      const btn = promptBox.querySelector('button.settings-trigger-button') ||
+                  promptBox.querySelector('.submit-controls button:first-child');
+      if (btn) return btn;
+    }
+    return document.querySelector('button.settings-trigger-button, button[aria-label="Settings trigger"]');
+  }
+
+  async function openFlowSettingsPanel() {
+    const trigger = findSettingsTrigger();
+    if (!trigger) return { ok: false, error: 'Could not find Settings Trigger button in flow-base-prompt-box.' };
+
+    // Ensure trigger is focused and clicked directly
+    trigger.scrollIntoView?.({ block: 'center', behavior: 'instant' });
+    trigger.focus?.();
+    trigger.click?.();
+
+    // Also dispatch pointerdown/up to activate Material cdkoverlayorigin
+    const opts = { bubbles: true, cancelable: true, composed: true, view: window };
+    trigger.dispatchEvent(new PointerEvent('pointerdown', { ...opts, pointerId: 1, isPrimary: true, button: 0 }));
+    trigger.dispatchEvent(new MouseEvent('mousedown', { ...opts, button: 0 }));
+    trigger.dispatchEvent(new PointerEvent('pointerup', { ...opts, pointerId: 1, isPrimary: true, button: 0 }));
+    trigger.dispatchEvent(new MouseEvent('mouseup', { ...opts, button: 0 }));
+
+    await delay(700);
+
+    // Inspect whatever overlay panes have rendered
+    const overlayPanes = [...document.querySelectorAll('.cdk-overlay-pane, .cdk-overlay-container, mat-dialog-container, [role="menu"], [role="dialog"]')];
+    const overlayItems = overlayPanes.flatMap((pane) => {
+      return [...pane.querySelectorAll('button, [role="menuitem"], [role="option"], mat-chip, mat-button-toggle, [role="radio"], [role="tab"], .mat-mdc-menu-item, span')];
+    }).filter(visible).map((el) => {
+      return {
+        tag: el.tagName,
+        text: (el.textContent || '').trim().replace(/\s+/g, ' ').slice(0, 50),
+        aria: el.getAttribute('aria-label') || ''
+      };
+    }).filter((i) => i.text || i.aria);
+
+    return { ok: true, triggerFound: true, paneCount: overlayPanes.length, overlayItems: overlayItems.slice(0, 50) };
+  }
+  async function closeFlowSettingsPanel() {
+    // 1. Focus and click prompt input to dismiss settings popover
+    const current = adapter();
+    const input = findVisible(current.inputs);
+    if (input) {
+      focusComposer(input);
+      clickElement(input);
+      await delay(200);
+    }
+
+    // 2. Click backdrop if still present
+    const backdrop = document.querySelector('.cdk-overlay-backdrop');
+    if (backdrop) {
+      clickElement(backdrop);
+      await delay(200);
+    }
+
+    // 3. Fallback Escape event
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', keyCode: 27, which: 27, bubbles: true }));
+    await delay(200);
+  }
+
+  async function selectOptionInSettingsPanel(labels, wantedValue) {
+    const val = String(wantedValue).toLowerCase().replace(/\s+/g, '');
+
+    // Gather all interactive elements inside the overlay / menu container
+    const overlay = document.querySelector('.cdk-overlay-container') || document;
+    const allControls = [...overlay.querySelectorAll('button, [role="button"], mat-button-toggle, mat-chip, [role="radio"], [role="tab"], [role="menuitem"], [role="option"], mat-option, li, div[role="button"]')].filter(visible);
+
+    // 1. Exact or partial text match on buttons/chips/options
+    const direct = allControls.find((el) => {
+      const text = (el.textContent || '').trim().toLowerCase().replace(/\s+/g, '');
+      const aria = (el.getAttribute('aria-label') || '').toLowerCase().replace(/\s+/g, '');
+      return text === val || aria === val || text.includes(val) || aria.includes(val);
+    });
+
+    if (direct) {
+      clickElement(direct);
+      await delay(300);
+      return true;
+    }
+    // 2. Look for section or submenu matching label keywords
+    const sectionTrigger = allControls.find((el) => {
+      const text = (el.textContent || '').trim().toLowerCase();
+      const aria = (el.getAttribute('aria-label') || '').toLowerCase();
+      return labels.some((lbl) => text.includes(lbl) || aria.includes(lbl));
+    });
+
+    if (sectionTrigger) {
+      clickElement(sectionTrigger);
+      await delay(300);
+      const subOptions = [...document.querySelectorAll('.cdk-overlay-container [role="menuitem"], .cdk-overlay-container [role="option"], mat-option, .mat-mdc-menu-item')].filter(visible);
+      const match = subOptions.find((opt) => {
+        const text = (opt.textContent || '').trim().toLowerCase().replace(/\s+/g, '');
+        const aria = (opt.getAttribute('aria-label') || '').toLowerCase().replace(/\s+/g, '');
+        return text === val || aria === val || text.includes(val) || aria.includes(val);
+      });
+      if (match) {
+        clickElement(match);
+        await delay(300);
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  async function setFlowAspectRatio(ratio) {
+    const cleaned = String(ratio).trim();
+    // Match 16:9, 9:16, 1:1, or material icon names like crop_16_9, crop_9_16
+    const iconName = 'crop_' + cleaned.replace(':', '_');
+    const ok = await selectOptionInSettingsPanel(['aspect', 'ratio', 'crop', 'orientation'], cleaned) ||
+               await selectOptionInSettingsPanel(['aspect', 'ratio', 'crop'], iconName);
+    return { ok, aspectRatio: cleaned };
+  }
+
+  async function setFlowCount(count) {
+    const num = Number(count);
+    if (!num || num < 1) return { ok: false, error: 'Count must be a positive integer.' };
+    const countStr = 'x' + num;
+    const ok = await selectOptionInSettingsPanel(['count', 'number', 'outputs', 'batch', 'variations'], countStr) ||
+               await selectOptionInSettingsPanel(['count', 'number', 'outputs'], String(num));
+    return { ok, count: num };
+  }
+
+  async function selectFlowModel(modelName) {
+    const name = String(modelName).trim();
+    const val = name.toLowerCase().replace(/\s+/g, '');
+
+    // Look for the "Select model family" trigger button
+    const overlay = document.querySelector('.cdk-overlay-container') || document;
+    const modelFamilyBtn = [...overlay.querySelectorAll('button')].find((b) => {
+      const aria = (b.getAttribute('aria-label') || '').toLowerCase();
+      return aria.includes('select model family') || aria.includes('model family');
+    });
+
+    if (modelFamilyBtn) {
+      clickElement(modelFamilyBtn);
+      await delay(400);
+
+      // Select the specific model from the dropdown menu
+      const modelMenuItems = [...document.querySelectorAll('.cdk-overlay-container [role="menuitem"], .cdk-overlay-container [role="option"], mat-option, .mat-mdc-menu-item')].filter(visible);
+      const match = modelMenuItems.find((item) => {
+        const text = (item.textContent || '').trim().toLowerCase().replace(/\s+/g, '');
+        return text.includes(val) || val.includes(text);
+      });
+
+      if (match) {
+        clickElement(match);
+        await delay(300);
+        return { ok: true, model: name };
+      }
+    }
+
+    const ok = await selectOptionInSettingsPanel(['select model family', 'model', 'banana', 'veo', 'imagen'], name);
+    return { ok, model: name };
+  }
+
+  async function configureFlowSettings(options) {
+    const results = {};
+    if (options.agent !== undefined) {
+      results.agent = await toggleFlowAgent(options.agent);
+    }
+
+    const needsPanel = options.mode || options.aspectRatio || options.count || options.model;
+    if (needsPanel) {
+      results.panel = await openFlowSettingsPanel();
+      if (options.mode) {
+        results.mode = await selectFlowMode(options.mode);
+      }
+      if (options.aspectRatio) {
+        results.aspectRatio = await setFlowAspectRatio(options.aspectRatio);
+      }
+      if (options.count) {
+        results.count = await setFlowCount(options.count);
+      }
+      if (options.model) {
+        results.model = await selectFlowModel(options.model);
+      }
+
+      await closeFlowSettingsPanel();
+    }
+
+    return results;
+  }
+
+  function getFlowState() {
+    const buttons = [...document.querySelectorAll('button, [role="button"], mat-button-toggle, mat-select, [role="tab"], [role="switch"]')].filter(visible);
+
+    const elementsInfo = buttons.map((btn) => {
+      const text = (btn.textContent || '').trim().replace(/\s+/g, ' ');
+      const aria = btn.getAttribute('aria-label') || '';
+      const isSelected = btn.getAttribute('aria-pressed') === 'true' ||
+                         btn.getAttribute('aria-checked') === 'true' ||
+                         btn.classList.contains('mat-button-toggle-checked') ||
+                         btn.classList.contains('active') ||
+                         btn.classList.contains('selected');
+      return {
+        tag: btn.tagName,
+        text: text.slice(0, 40),
+        ariaLabel: aria,
+        selected: isSelected
+      };
+    }).filter((item) => item.text || item.ariaLabel);
+
+    return {
+      activeToggles: elementsInfo.filter((item) => item.selected).map((i) => i.text || i.ariaLabel),
+      visibleControls: elementsInfo.slice(0, 30),
+      hasPromptBox: Boolean(findVisible(adapter().inputs))
+    };
+  }
+
+
 
   function getSlateEditor(element) {
     if (!element) return null;
@@ -1275,6 +1558,16 @@
         sendResponse({ ok: ready, hasPromptBox: Boolean(findVisible(adapter().inputs)) });
       });
       return true;
+    }
+    if (message.type === 'PROMPT_PILOT_FLOW_CONFIG') {
+      configureFlowSettings(message.options || {}).then((result) => {
+        sendResponse({ ok: true, result, state: getFlowState() });
+      });
+      return true;
+    }
+    if (message.type === 'PROMPT_PILOT_FLOW_STATE') {
+      sendResponse({ ok: true, state: getFlowState() });
+      return;
     }
     if (message.type === 'PROMPT_PILOT_SCAN_MEDIA') {
       sendResponse({ media: scanMedia() });

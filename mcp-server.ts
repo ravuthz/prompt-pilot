@@ -42,8 +42,67 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
               type: 'boolean',
               description: 'Whether to automatically click Generate / Send (true) or just type the prompt into the input box (false). Default: true.',
             },
+            mode: {
+              type: 'string',
+              enum: ['image', 'video'],
+              description: 'Set generation mode before prompting ("image" or "video").',
+            },
+            aspectRatio: {
+              type: 'string',
+              description: 'Set aspect ratio before prompting (e.g. "16:9", "9:16", "1:1").',
+            },
+            count: {
+              type: 'number',
+              description: 'Set number of images/videos to generate (e.g. 1, 2, 4).',
+            },
+            model: {
+              type: 'string',
+              description: 'Select generative model name (e.g. "Veo", "Imagen", "Nano Banana").',
+            },
+            agent: {
+              type: 'boolean',
+              description: 'Toggle Google Flow Agent mode (true to enable, false to disable).',
+            },
           },
           required: ['prompt'],
+        },
+      },
+      {
+        name: 'flow_configure',
+        description: 'Configure Google Flow settings: toggle Agent mode, switch Image/Video, set aspect ratio, generation count, or select model.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            mode: {
+              type: 'string',
+              enum: ['image', 'video'],
+              description: 'Switch between "image" and "video" generation.',
+            },
+            aspectRatio: {
+              type: 'string',
+              description: 'Set aspect ratio (e.g. "16:9", "9:16", "1:1").',
+            },
+            count: {
+              type: 'number',
+              description: 'Number of generations (e.g. 1, 2, 4).',
+            },
+            model: {
+              type: 'string',
+              description: 'Target model name (e.g. "Veo", "Imagen", "Nano Banana Pro").',
+            },
+            agent: {
+              type: 'boolean',
+              description: 'Set Agent mode enabled (true) or disabled (false).',
+            },
+          },
+        },
+      },
+      {
+        name: 'flow_state',
+        description: 'Inspect active Google Flow toggles, selected options, and prompt box visibility.',
+        inputSchema: {
+          type: 'object',
+          properties: {},
         },
       },
       {
@@ -122,7 +181,51 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         const site = typeof args?.site === 'string' ? args.site : 'Google Flow';
         const autoSend = args?.autoSend !== false;
 
+        const configOptions: Record<string, unknown> = {};
+        if (args?.mode) configOptions.mode = args.mode;
+        if (args?.aspectRatio) configOptions.aspectRatio = args.aspectRatio;
+        if (args?.count) configOptions.count = args.count;
+        if (args?.model) configOptions.model = args.model;
+        if (args?.agent !== undefined) configOptions.agent = args.agent;
+
+        let configResult;
+        if (Object.keys(configOptions).length > 0) {
+          configResult = await bridge.sendAction('flow_config', { options: configOptions, site });
+        }
+
         const result = await bridge.sendAction('send_prompt', { prompt, site, autoSend });
+        return {
+          content: [
+            {
+              type: 'text',
+              text: JSON.stringify({ configResult, promptResult: result }, null, 2),
+            },
+          ],
+        };
+      }
+
+      case 'flow_configure': {
+        const site = typeof args?.site === 'string' ? args.site : 'Google Flow';
+        const options: Record<string, unknown> = {};
+        if (args?.mode) options.mode = args.mode;
+        if (args?.aspectRatio) options.aspectRatio = args.aspectRatio;
+        if (args?.count) options.count = args.count;
+        if (args?.model) options.model = args.model;
+        if (args?.agent !== undefined) options.agent = args.agent;
+
+        const result = await bridge.sendAction('flow_config', { options, site });
+        return {
+          content: [
+            {
+              type: 'text',
+              text: JSON.stringify(result, null, 2),
+            },
+          ],
+        };
+      }
+
+      case 'flow_state': {
+        const result = await bridge.sendAction('flow_state');
         return {
           content: [
             {

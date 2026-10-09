@@ -41,8 +41,20 @@ bun run cli detect
 # List open browser tabs
 bun run cli list-tabs
 
-# Send prompt to Google Flow (or other target site)
-bun run cli prompt "A cinematic hyperrealistic shot of an astronaut in a neon forest" --site "Google Flow"
+### 2. CLI Usage
+```bash
+# Configure Google Flow settings
+bun run cli config --agent
+bun run cli config --mode video --aspect 16:9 --count 2 --model "Veo 3.1"
+
+# Inspect active Flow settings and prompt readiness
+bun run cli state
+
+# Send prompt with inline parameters
+bun run cli prompt "A cinematic shot of a Tokyo street in rain" --mode video --aspect 16:9 --count 1 --model "Veo"
+
+# Open project if on gallery page
+bun run cli open-project
 
 # Scan generated images, videos, and music links on the active tab
 bun run cli scan-media
@@ -67,7 +79,10 @@ In `claude_desktop_config.json` or your MCP client settings:
 ```
 
 Exposed MCP Tools:
-- `flow_send_prompt`: Send prompt to Google Flow / ChatGPT / Claude / Suno tab.
+- `flow_send_prompt`: Send prompt to Google Flow (supports inline `mode`, `aspectRatio`, `count`, `model`, `agent`).
+- `flow_configure`: Set Flow generation parameters (`agent`, `mode`, `aspectRatio`, `count`, `model`).
+- `flow_state`: Inspect active toggles, selected options, and prompt box readiness.
+- `flow_open_project`: Open or create a Flow project to reveal the prompt box.
 - `flow_scan_media`: Scan generated images and video links from the active tab.
 - `flow_upscale`: Upscale videos on Google Flow.
 - `tab_detect`: Identify active AI platforms and readiness.

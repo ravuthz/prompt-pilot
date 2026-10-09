@@ -15,8 +15,23 @@ Commands:
   detect                  Detect active AI platform in the current/open browser tab
   prompt <text> [options] Send prompt to the current AI platform (default Google Flow)
                           Options:
-                            --site <name>     Target specific site (e.g. "Google Flow", "ChatGPT")
-                            --no-autosend     Type prompt without clicking generate/send
+                            --site <name>       Target specific site (e.g. "Google Flow", "ChatGPT")
+                            --no-autosend       Type prompt without clicking generate/send
+                            --mode <img|video>  Switch mode to image or video
+                            --aspect <ratio>    Set aspect ratio (e.g. "16:9", "9:16", "1:1")
+                            --count <number>    Set generation count (e.g. 1, 2, 4)
+                            --model <name>      Select model name
+                            --agent             Enable Flow Agent mode
+                            --no-agent          Disable Flow Agent mode
+  config [options]        Configure Google Flow generation settings without prompting
+                          Options:
+                            --agent             Enable Agent mode
+                            --no-agent          Disable Agent mode
+                            --mode <img|video>  Switch to image or video mode
+                            --aspect <ratio>    Set aspect ratio (e.g. "16:9", "9:16", "1:1")
+                            --count <number>    Set number of generations (e.g. 1, 2, 4)
+                            --model <name>      Select model (e.g. "Veo", "Imagen", "Nano Banana")
+  state                   Inspect active Google Flow toggles, modes, and prompt box readiness
   open-project            Open or create a Google Flow project to reveal the prompt box
   scan-media              Scan images/videos generated on the active tab
   list-tabs               List open web tabs in Chrome
@@ -87,17 +102,70 @@ async function main() {
 
         let site = 'Google Flow';
         let autoSend = true;
+        const configOptions: Record<string, unknown> = {};
 
         for (let i = 1; i < args.length; i++) {
           if (args[i] === '--site' && args[i + 1]) {
             site = args[++i];
           } else if (args[i] === '--no-autosend') {
             autoSend = false;
+          } else if (args[i] === '--mode' && args[i + 1]) {
+            configOptions.mode = args[++i];
+          } else if (args[i] === '--aspect' && args[i + 1]) {
+            configOptions.aspectRatio = args[++i];
+          } else if (args[i] === '--count' && args[i + 1]) {
+            configOptions.count = Number(args[++i]);
+          } else if (args[i] === '--model' && args[i + 1]) {
+            configOptions.model = args[++i];
+          } else if (args[i] === '--agent') {
+            configOptions.agent = true;
+          } else if (args[i] === '--no-agent') {
+            configOptions.agent = false;
           }
+        }
+
+        if (Object.keys(configOptions).length > 0) {
+          console.log('Applying generation options:', configOptions);
+          const cfgRes = await bridge.sendAction('flow_config', { options: configOptions, site });
+          console.log('Configuration result:', JSON.stringify(cfgRes, null, 2));
         }
 
         console.log(`Sending prompt to ${site}...`);
         const result = await bridge.sendAction('send_prompt', { prompt: promptText, site, autoSend });
+        console.log(JSON.stringify(result, null, 2));
+        break;
+      }
+
+      case 'config': {
+        const configOptions: Record<string, unknown> = {};
+        let site = 'Google Flow';
+
+        for (let i = 0; i < args.length; i++) {
+          if (args[i] === '--site' && args[i + 1]) {
+            site = args[++i];
+          } else if (args[i] === '--mode' && args[i + 1]) {
+            configOptions.mode = args[++i];
+          } else if (args[i] === '--aspect' && args[i + 1]) {
+            configOptions.aspectRatio = args[++i];
+          } else if (args[i] === '--count' && args[i + 1]) {
+            configOptions.count = Number(args[++i]);
+          } else if (args[i] === '--model' && args[i + 1]) {
+            configOptions.model = args[++i];
+          } else if (args[i] === '--agent') {
+            configOptions.agent = true;
+          } else if (args[i] === '--no-agent') {
+            configOptions.agent = false;
+          }
+        }
+
+        console.log('Applying Google Flow settings:', configOptions);
+        const result = await bridge.sendAction('flow_config', { options: configOptions, site });
+        console.log(JSON.stringify(result, null, 2));
+        break;
+      }
+
+      case 'state': {
+        const result = await bridge.sendAction('flow_state');
         console.log(JSON.stringify(result, null, 2));
         break;
       }

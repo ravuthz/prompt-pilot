@@ -189,6 +189,18 @@
         const resp = await sendToContentScript(tab.id, { type: 'PROMPT_PILOT_OPEN_FLOW_PROJECT' });
         return { tabId: tab.id, response: resp };
       }
+      case 'flow_config': {
+        const resp = await sendToContentScript(tab.id, {
+          type: 'PROMPT_PILOT_FLOW_CONFIG',
+          options: params.options || {}
+        });
+        return { tabId: tab.id, response: resp };
+      }
+
+      case 'flow_state': {
+        const resp = await sendToContentScript(tab.id, { type: 'PROMPT_PILOT_FLOW_STATE' });
+        return { tabId: tab.id, response: resp };
+      }
 
       case 'scan_media': {
         const resp = await sendToContentScript(tab.id, { type: 'PROMPT_PILOT_SCAN_MEDIA' });

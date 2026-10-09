@@ -222,6 +222,17 @@ async function handleBridgeAction(action, params) {
       const resp = await sendToContentScript(tab.id, { type: 'PROMPT_PILOT_OPEN_FLOW_PROJECT' });
       return { tabId: tab.id, response: resp };
     }
+    case 'flow_config': {
+      const resp = await sendToContentScript(tab.id, {
+        type: 'PROMPT_PILOT_FLOW_CONFIG',
+        options: params.options || {}
+      });
+      return { tabId: tab.id, response: resp };
+    }
+    case 'flow_state': {
+      const resp = await sendToContentScript(tab.id, { type: 'PROMPT_PILOT_FLOW_STATE' });
+      return { tabId: tab.id, response: resp };
+    }
     case 'response_state': {
       const resp = await sendToContentScript(tab.id, { type: 'PROMPT_PILOT_RESPONSE_STATE' });
       return { tabId: tab.id, busy: resp?.busy || false };
