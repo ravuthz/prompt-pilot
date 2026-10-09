@@ -29,10 +29,13 @@ function connectBridge() {
         client: 'chrome-extension'
       }));
     };
-
     socket.onmessage = async (event) => {
       try {
         const payload = JSON.parse(event.data);
+        if (payload?.type === 'PING') {
+          socket.send(JSON.stringify({ type: 'PONG', timestamp: Date.now() }));
+          return;
+        }
         if (!payload || !payload.id || !payload.action) return;
         const result = await handleBridgeAction(payload.action, payload.params || {});
         socket.send(JSON.stringify({
@@ -79,14 +82,27 @@ function scheduleReconnect() {
   }, 3000);
 }
 
-// Ensure bridge is active
+// 1. Chrome alarms keep-alive (wakes the worker if sleeping)
+chrome.alarms.create('promptPilotBridgeKeepAlive', { periodInMinutes: 0.4 });
+chrome.alarms.onAlarm.addListener((alarm) => {
+  if (alarm.name === 'promptPilotBridgeKeepAlive') {
+    if (!socket || socket.readyState === WebSocket.CLOSED) {
+      connectBridge();
+    } else if (socket.readyState === WebSocket.OPEN) {
+      socket.send(JSON.stringify({ type: 'PING' }));
+    }
+  }
+});
+
+// 2. Ensure bridge is active immediately and check on short interval
 connectBridge();
 setInterval(() => {
   if (!socket || socket.readyState === WebSocket.CLOSED) {
     connectBridge();
+  } else if (socket && socket.readyState === WebSocket.OPEN) {
+    socket.send(JSON.stringify({ type: 'PING' }));
   }
-}, 5000);
-
+}, 10000);
 async function findTargetTab(siteFilter) {
   const tabs = await chrome.tabs.query({});
   const webTabs = tabs.filter(t => t.url && !t.url.startsWith('chrome://') && !t.url.startsWith('brave://') && !t.url.startsWith('edge://'));

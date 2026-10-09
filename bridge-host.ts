@@ -108,6 +108,15 @@ export class BridgeHost {
           return;
         }
 
+        if (msg.type === 'PING') {
+          ws.send(JSON.stringify({ type: 'PONG', timestamp: Date.now() }));
+          return;
+        }
+
+        if (msg.type === 'PONG') {
+          return;
+        }
+
         if (this.isServer) {
           // Internal server actions (e.g. list_browsers)
           if (msg.action === 'list_browsers') {
