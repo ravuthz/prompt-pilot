@@ -17,9 +17,34 @@
   </nav>
 
   <main id="main">
-    <div class="empty" id="empty">
-      <p>No browsers connected.</p>
-      <p class="muted">Open Chrome/Brave with the Prompt Pilot extension enabled, then refresh.</p>
+    <div class="panel-grid skeleton" id="empty" role="status" aria-busy="true" aria-label="Waiting for a browser with the Prompt Pilot extension">
+      <div class="stack">
+        <div class="card">
+          <div class="sk sk-title"></div>
+          <div class="sk sk-block"></div>
+          <div class="row"><div class="sk sk-field"></div><div class="sk sk-field"></div></div>
+          <div class="row"><div class="sk sk-field"></div><div class="sk sk-field"></div></div>
+          <div class="row"><div class="sk sk-field"></div><div class="sk sk-field"></div></div>
+        </div>
+        <div class="card">
+          <div class="sk sk-title"></div>
+          <div class="sk-quick"><div class="sk sk-btn"></div><div class="sk sk-btn"></div><div class="sk sk-btn"></div><div class="sk sk-btn"></div><div class="sk sk-btn"></div><div class="sk sk-btn"></div></div>
+          <div class="sk sk-title"></div>
+          <div class="sk sk-log"></div>
+        </div>
+      </div>
+      <div class="stack">
+        <div class="card compact">
+          <div class="sk sk-title"></div>
+          <div class="sk sk-line"></div>
+          <div class="sk sk-line"></div>
+          <div class="sk sk-line"></div>
+        </div>
+        <div class="card">
+          <div class="sk sk-title"></div>
+          <div class="sk-media"><div class="sk"></div><div class="sk"></div><div class="sk"></div><div class="sk"></div><div class="sk"></div><div class="sk"></div></div>
+        </div>
+      </div>
     </div>
 
     <section class="panel-grid" id="panel" hidden>
