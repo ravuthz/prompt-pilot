@@ -5,7 +5,7 @@ import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js';
-import { BridgeHost } from './bridge-host';
+import { BridgeHost, waitForConfigSettle } from './bridge-host';
 
 const bridge = new BridgeHost(9988, { isServer: true });
 
@@ -266,6 +266,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         let configResult;
         if (Object.keys(configOptions).length > 0) {
           configResult = await bridge.sendAction('flow_config', { options: configOptions, site }, 30000, targetBrowser);
+          await waitForConfigSettle();
         }
 
         const result = await bridge.sendAction('send_prompt', { prompt, site, autoSend }, 30000, targetBrowser);
@@ -300,6 +301,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         if (args?.agent !== undefined) options.agent = args.agent;
 
         const result = await bridge.sendAction('flow_config', { options, site }, 30000, targetBrowser);
+        await waitForConfigSettle();
         return {
           content: [
             {

@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-import { BridgeHost } from './bridge-host';
+import { BridgeHost, CONFIG_SETTLE_MS, waitForConfigSettle } from './bridge-host';
 
 const command = process.argv[2];
 const args = process.argv.slice(3);
@@ -148,6 +148,8 @@ async function main() {
           console.log('Applying generation options:', configOptions);
           const cfgRes = await bridge.sendAction('flow_config', { options: configOptions, site }, 30000, targetBrowser);
           console.log('Configuration result:', JSON.stringify(cfgRes, null, 2));
+          console.log(`Waiting ${CONFIG_SETTLE_MS / 1000}s for settings to apply...`);
+          await waitForConfigSettle();
         }
 
         console.log(`Sending prompt to ${site}...`);
@@ -191,6 +193,7 @@ async function main() {
         console.log('Applying Google Flow settings:', configOptions);
         const result = await bridge.sendAction('flow_config', { options: configOptions, site }, 30000, targetBrowser);
         console.log(JSON.stringify(result, null, 2));
+        await waitForConfigSettle();
         break;
       }
 

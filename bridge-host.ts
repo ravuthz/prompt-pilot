@@ -22,6 +22,11 @@ export interface ConnectedBrowser {
   connectedAt: number;
 }
 
+// Google Flow needs time to apply setting changes before the next request.
+export const CONFIG_SETTLE_MS = 3000;
+
+export const waitForConfigSettle = () => new Promise<void>((resolve) => setTimeout(resolve, CONFIG_SETTLE_MS));
+
 export class BridgeHost {
   private wss: WebSocketServer | null = null;
   private clientWs: WebSocket | null = null;
