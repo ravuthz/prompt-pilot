@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Prompt Pilot Web</title>
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">Prompt Pilot <span>Web</span></div>
+    <div class="status" id="status"><span class="dot"></span><span id="statusText">Connecting…</span></div>
+  </header>
+
+  <nav class="browser-tabs" id="browserTabs" role="tablist" aria-label="Connected browsers">
+    <!-- browser tabs rendered here -->
+  </nav>
+
+  <main id="main">
+    <div class="empty" id="empty">
+      <p>No browsers connected.</p>
+      <p class="muted">Open Chrome/Brave with the Prompt Pilot extension enabled, then refresh.</p>
+    </div>
+
+    <section class="panel-grid" id="panel" hidden>
+      <div class="stack">
+      <form class="card" id="promptForm">
+        <h2>Send prompt</h2>
+        <div class="prompt-box">
+          <textarea id="prompt" rows="4" placeholder="A cinematic neon cyberpunk alley in the rain" required></textarea>
+          <button type="submit" class="send-btn" title="Send prompt" aria-label="Send prompt">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M12 19V5"/><path d="m5 12 7-7 7 7"/>
+            </svg>
+          </button>
+        </div>
+        <div class="row">
+          <label>Site <input id="site" value="Google Flow" /></label>
+          <label>Count
+            <select id="count">
+              <option>1</option><option>2</option><option>3</option><option>4</option>
+            </select>
+          </label>
+        </div>
+        <div class="row">
+          <div class="field">
+            <span>Aspect</span>
+            <input type="hidden" id="aspect" value="16:9" />
+            <div class="segmented" data-for="aspect" role="group" aria-label="Aspect">
+              <button type="button" data-value="16:9">16:9</button>
+              <button type="button" data-value="9:16">9:16</button>
+              <button type="button" data-value="1:1">1:1</button>
+            </div>
+          </div>
+          <div class="field">
+            <span>Mode</span>
+            <input type="hidden" id="mode" value="image" />
+            <div class="segmented" data-for="mode" role="group" aria-label="Mode">
+              <button type="button" data-value="image">Image</button>
+              <button type="button" data-value="video">Video</button>
+            </div>
+          </div>
+        </div>
+        <div class="row">
+          <label>Model
+            <select id="model"></select>
+          </label>
+          <div class="field">
+            <span>Agent</span>
+            <input type="hidden" id="agent" value="true" />
+            <div class="segmented" data-for="agent" role="group" aria-label="Agent">
+              <button type="button" data-value="true">On</button>
+              <button type="button" data-value="false">Off</button>
+            </div>
+          </div>
+        </div>
+      </form>
+
+      <div class="card">
+        <h2>Quick actions</h2>
+        <div class="quick">
+          <button class="btn" data-quick="image">Image mode</button>
+          <button class="btn" data-quick="video">Video mode</button>
+          <button class="btn" data-quick="detect">Detect site</button>
+          <button class="btn" data-quick="state">Flow state</button>
+          <button class="btn" data-quick="open-project">Open project</button>
+          <button class="btn" data-quick="upscale">Upscale</button>
+        </div>
+        <div class="card-head">
+          <h2>Output</h2>
+          <button class="btn ghost" id="clearLog">Clear</button>
+        </div>
+        <pre class="log" id="log"></pre>
+      </div>
+      </div>
+
+      <div class="stack">
+        <div class="card compact">
+          <div class="card-head">
+            <h2>Open tabs</h2>
+            <button class="btn ghost" id="reloadTabs">Reload</button>
+          </div>
+          <ul class="tab-list" id="tabList"></ul>
+        </div>
+
+        <div class="card">
+          <div class="card-head">
+            <h2>Media list <span class="muted" id="mediaCount"></span></h2>
+            <div class="actions">
+              <select id="mediaFilter" aria-label="Filter media type">
+                <option value="">All</option>
+                <option value="image">Images</option>
+                <option value="video">Videos</option>
+                <option value="audio">Audio</option>
+              </select>
+              <button class="btn" id="scanMedia">Scan</button>
+            </div>
+          </div>
+          <div class="media-grid" id="mediaList">
+            <p class="muted">Click Scan to list generated media in the target tab.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <script src="/app.js"></script>
+</body>
+</html>

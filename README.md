@@ -131,6 +131,21 @@ bun run cli list-tabs
 
 ---
 
+## Web Dashboard (`web/`)
+
+A small browser UI over the same bridge used by the CLI and MCP server.
+
+```bash
+bun run web
+# → http://127.0.0.1:9990
+```
+
+- The home page shows every connected browser as a tab in a row (`Browser 1`, `Browser 2`, …).
+- Selecting a browser lists its open tabs and offers prompt sending, Flow settings, and quick actions (image/video mode, detect, state, open project, scan media, upscale).
+- Uses `PROMPT_PILOT_REMOTE` / `PROMPT_PILOT_TOKEN` from `.env` like the CLI. Override the listen address with `WEB_PORT` / `WEB_HOST`.
+
+---
+
 ## Remote Access via Cloudflare Tunnel & Token Authentication
 
 You can control your local browser remotely over the internet through your custom domain via **Cloudflare Tunnel (`cloudflared`)** with encrypted WebSockets and token authentication.
