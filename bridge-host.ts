@@ -1,4 +1,5 @@
 import { WebSocketServer, WebSocket } from 'ws';
+import { createServer, type IncomingMessage, type Server as HttpServer, type ServerResponse } from 'node:http';
 
 export interface BridgeRequest {
   id: string;
@@ -29,8 +30,10 @@ export const waitForConfigSettle = () => new Promise<void>((resolve) => setTimeo
 
 export class BridgeHost {
   private wss: WebSocketServer | null = null;
+  private httpServer: HttpServer | null = null;
   private clientWs: WebSocket | null = null;
   private isServer = false;
+  private mustListen = false;
   private browserMap = new Map<string, ConnectedBrowser>();
   private wsToBrowserId = new Map<WebSocket, string>();
   private authenticatedSockets = new Set<WebSocket>();
@@ -43,12 +46,21 @@ export class BridgeHost {
     answered: boolean;
   }>();
 
-  constructor(private port: number = 9988, options: { token?: string; remoteUrl?: string; isServer?: boolean } = {}) {
+  constructor(private port: number = 9988, options: {
+    token?: string;
+    remoteUrl?: string;
+    isServer?: boolean;
+    httpHandler?: (req: IncomingMessage, res: ServerResponse) => void;
+  } = {}) {
     this.authToken = options.token || process.env.PROMPT_PILOT_TOKEN || '';
+    this.mustListen = options.isServer === true;
+    this.httpHandler = options.httpHandler;
     if (!options.isServer) {
       this.remoteUrl = options.remoteUrl || process.env.PROMPT_PILOT_REMOTE || '';
     }
   }
+
+  private httpHandler?: (req: IncomingMessage, res: ServerResponse) => void;
 
   async start(): Promise<void> {
     // If a remote URL (e.g. wss://prompt.yourdomain.com) is specified and NOT in server mode, connect directly as remote client
@@ -59,9 +71,14 @@ export class BridgeHost {
 
     try {
       const { promise, resolve, reject } = Promise.withResolvers<void>();
-      const server = new WebSocketServer({ port: this.port });
+      const httpServer = createServer((req, res) => {
+        if (this.httpHandler) this.httpHandler(req, res);
+        else res.writeHead(404).end();
+      });
+      const server = new WebSocketServer({ server: httpServer });
 
-      server.on('listening', () => {
+      httpServer.on('listening', () => {
+        this.httpServer = httpServer;
         this.wss = server;
         this.isServer = true;
         console.error(`[BridgeServer] Listening on port ${this.port} (0.0.0.0 & 127.0.0.1)`);
@@ -71,7 +88,7 @@ export class BridgeHost {
         resolve();
       });
 
-      server.on('error', (err) => {
+      httpServer.on('error', (err) => {
         reject(err);
       });
 
@@ -81,10 +98,11 @@ export class BridgeHost {
         this.setupSocketHandlers(ws);
       });
 
+      httpServer.listen(this.port);
       await promise;
     } catch (err: unknown) {
       const isAddrInUse = err && typeof err === 'object' && 'code' in err && err.code === 'EADDRINUSE';
-      if (isAddrInUse) {
+      if (isAddrInUse && !this.mustListen) {
         await this.connectToExistingServer();
       } else {
         throw err;
@@ -336,6 +354,10 @@ export class BridgeHost {
       this.wss.close(() => resolve());
       await promise;
       this.wss = null;
+      if (this.httpServer) {
+        await new Promise<void>((resolve) => this.httpServer!.close(() => resolve()));
+        this.httpServer = null;
+      }
     } else if (this.clientWs) {
       this.clientWs.close();
       this.clientWs = null;

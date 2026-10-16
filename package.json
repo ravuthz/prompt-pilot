@@ -8,6 +8,7 @@
     "watch": "tailwindcss -i ./src.css -o ./styles.css --watch",
     "cli": "bun run cli.ts",
     "mcp": "bun run mcp-server.ts",
+    "test:mcp": "bun test tests/mcp-remote.test.ts tests/mcp-http.test.ts",
     "web": "bun run web/server.ts"
   },
   "devDependencies": {

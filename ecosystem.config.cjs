@@ -4,7 +4,7 @@ module.exports = {
             name: "prompt-pilot",
             cwd: "/Users/ravuthz/Projects/@oooo/tools/auto-prompts",
             script: "/Users/ravuthz/.bun/bin/bun",
-            args: "run cli server",
+            args: "run mcp-server.ts --http",
             interpreter: "none",
             autorestart: true,
             watch: false,

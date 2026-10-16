@@ -237,38 +237,46 @@ bun run cli prompt "Cyberpunk city"
 
 ## MCP Server Integration (OpenAI Codex, Claude Desktop, Cursor)
 
-Prompt Pilot provides an official Model Context Protocol server over `stdio` via `bun run mcp-server.ts`.
+The PM2 process serves both the existing WebSocket bridge at `wss://prompt-pilot.appkh.online` and a Streamable HTTP MCP endpoint at **`https://prompt-pilot.appkh.online/mcp`**. MCP HTTP requests need `Authorization: Bearer <PROMPT_PILOT_TOKEN>`. The token must be set in the PM2 process environment; the server refuses to start HTTP mode without it. The Chrome extension continues to use the WebSocket URL and the same token.
 
-### 1. Connect to OpenAI Codex CLI (`codex`)
+After updating this repo on the host, run `pm2 restart ecosystem.config.cjs --update-env` and `pm2 save`. The Cloudflare tunnel can continue forwarding the domain to port 9988. An unauthenticated request to `/mcp` should return HTTP 401.
 
-Run:
+### Direct remote install in OpenAI Codex
+
+Make `PROMPT_PILOT_TOKEN` available in the environment that starts Codex, then run:
 
 ```bash
-codex mcp add prompt-pilot -- bun run /path-to-extensions/auto-prompts/mcp-server.ts
+codex mcp add prompt-pilot --url https://prompt-pilot.appkh.online/mcp --bearer-token-env-var PROMPT_PILOT_TOKEN
+codex mcp list
 ```
 
-Or add to `~/.codex/config.toml`:
+The equivalent `~/.codex/config.toml` entry is:
 
 ```toml
 [mcp_servers.prompt-pilot]
-command = "bun"
-args = ["run", "/path-to-extensions/auto-prompts/mcp-server.ts"]
+url = "https://prompt-pilot.appkh.online/mcp"
+bearer_token_env_var = "PROMPT_PILOT_TOKEN"
 ```
 
-### 2. Connect to Claude Desktop
+Restart Codex after changing its MCP configuration, then call `browser_list` or `flow_status` to check the connection.
 
-Add to your `claude_desktop_config.json`:
+### Local stdio install (Claude Desktop, Cursor, or Codex)
+
+For a client that cannot provide a bearer token to a remote MCP URL, install [Bun](https://bun.sh), clone this repo, run `bun install`, and set `PROMPT_PILOT_REMOTE=wss://prompt-pilot.appkh.online` and `PROMPT_PILOT_TOKEN` in the repo's ignored `.env` file. `mcp.sh` starts Bun from this directory so it loads the file.
+
+Add this server to `claude_desktop_config.json` or Cursor's MCP configuration, substituting the actual absolute path:
 
 ```json
 {
   "mcpServers": {
     "prompt-pilot": {
-      "command": "bun",
-      "args": ["run", "/path-to-extensions/auto-prompts/mcp-server.ts"]
+      "command": "/absolute/path/to/auto-prompts/mcp.sh"
     }
   }
 }
 ```
+
+For Codex stdio, run `codex mcp add prompt-pilot -- "$(pwd -P)/mcp.sh"` from the repo directory. The Chrome extension must be connected for browser actions to work. Each MCP client process has its own generation queue, so use one client for a batch you intend to track with `flow_wait`.
 
 ---
 

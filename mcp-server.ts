@@ -1,7 +1,9 @@
 #!/usr/bin/env bun
-import { randomUUID } from 'node:crypto';
+import { randomUUID, timingSafeEqual } from 'node:crypto';
+import type { IncomingMessage, ServerResponse } from 'node:http';
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
@@ -10,7 +12,13 @@ import { BridgeHost, waitForConfigSettle } from './bridge-host';
 import { JobQueue, downloadMedia, mediaFileNames, scanMedia, type Scene } from './jobs';
 import { PLAYBOOK, TECHNIQUES, applyTechnique } from './presets';
 
-const bridge = new BridgeHost(9988, { isServer: true });
+const httpMode = process.argv.includes('--http');
+// Stdio MCP connects to the configured remote bridge. HTTP mode owns the
+// bridge so the existing WebSocket clients and MCP clients share one port.
+const bridge = new BridgeHost(Number(process.env.PORT || 9988), {
+  isServer: httpMode,
+  httpHandler: httpMode ? (req, res) => { void handleHttpMcp(req, res); } : undefined,
+});
 const queue = new JobQueue(bridge);
 
 // Most MCP clients give up on a tool call after about 60s. Anything slower answers with a task id and keeps running;
@@ -251,12 +259,15 @@ const TOOLS = [
   },
 ];
 
-const server = new Server(
-  { name: 'prompt-pilot-bridge-mcp', version: '1.1.0' },
-  { capabilities: { tools: {} } },
-);
-
-server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: TOOLS }));
+function createMcpServer() {
+  const server = new Server(
+    { name: 'prompt-pilot-bridge-mcp', version: '1.1.0' },
+    { capabilities: { tools: {} } },
+  );
+  server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: TOOLS }));
+  server.setRequestHandler(CallToolRequestSchema, handleToolRequest);
+  return server;
+}
 
 const NO_BRIDGE_TOOLS = new Set(['flow_techniques', 'flow_wait', 'flow_cancel', 'flow_retry']);
 
@@ -393,7 +404,7 @@ async function callTool(name: string, args: Record<string, unknown>): Promise<un
   }
 }
 
-server.setRequestHandler(CallToolRequestSchema, async (request) => {
+async function handleToolRequest(request: { params: { name: string; arguments?: Record<string, unknown> } }) {
   const { name, arguments: args } = request.params;
 
   if (!NO_BRIDGE_TOOLS.has(name) && name !== 'flow_status' && !bridge.isConnected()) {
@@ -413,10 +424,60 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     const errorMsg = err instanceof Error ? err.message : String(err);
     return { isError: true, content: [{ type: 'text', text: `Tool execution failed: ${errorMsg}` }] };
   }
-});
+}
+
+function authorized(req: IncomingMessage): boolean {
+  const token = process.env.PROMPT_PILOT_TOKEN;
+  const header = req.headers.authorization;
+  if (!token || !header?.startsWith('Bearer ')) return false;
+  const actual = Buffer.from(header.slice(7));
+  const expected = Buffer.from(token);
+  return actual.length === expected.length && timingSafeEqual(actual, expected);
+}
+
+async function handleHttpMcp(req: IncomingMessage, res: ServerResponse): Promise<void> {
+  const path = new URL(req.url ?? '/', 'http://localhost').pathname;
+  if (path !== '/mcp') {
+    res.writeHead(404).end();
+    return;
+  }
+  if (!authorized(req)) {
+    res.writeHead(401, { 'WWW-Authenticate': 'Bearer' }).end();
+    return;
+  }
+  if (req.method !== 'POST') {
+    res.writeHead(405, { Allow: 'POST' }).end();
+    return;
+  }
+
+  const server = createMcpServer();
+  const transport = new StreamableHTTPServerTransport({
+    sessionIdGenerator: undefined,
+    enableJsonResponse: true,
+  });
+  res.once('close', () => {
+    void transport.close();
+    void server.close();
+  });
+  try {
+    await server.connect(transport);
+    await transport.handleRequest(req, res);
+  } catch (err) {
+    console.error('MCP HTTP request failed:', err);
+    if (!res.headersSent) res.writeHead(500).end('MCP request failed');
+  }
+}
 
 async function run() {
+  if (httpMode && !process.env.PROMPT_PILOT_TOKEN) {
+    throw new Error('PROMPT_PILOT_TOKEN is required for the public MCP HTTP endpoint.');
+  }
   await bridge.start();
+  if (httpMode) {
+    console.error('[MCP] Streamable HTTP available at /mcp');
+    return;
+  }
+  const server = createMcpServer();
   const transport = new StdioServerTransport();
   await server.connect(transport);
 }
