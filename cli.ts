@@ -1,5 +1,8 @@
 #!/usr/bin/env bun
+import { readFileSync } from 'node:fs';
 import { BridgeHost, CONFIG_SETTLE_MS, waitForConfigSettle } from './bridge-host';
+import { JobQueue, downloadMedia, mediaFileNames, scanMedia, type Job, type Scene } from './jobs';
+import { TECHNIQUES, applyTechnique } from './presets';
 
 const command = process.argv[2];
 const args = process.argv.slice(3);
@@ -23,6 +26,23 @@ Commands:
                             --model <name>      Select model name
                             --agent             Enable Flow Agent mode
                             --no-agent          Disable Flow Agent mode
+                            --technique <id>    Append a preset from 'techniques'
+  generate [prompts...]   Queue Flow generations one at a time, wait for each result, and download it
+                          Options:
+                            --file <scenes.json> JSON array of scenes ({ prompt, mode, aspectRatio,
+                                                count, model, agent, technique, name })
+                            --folder <name>     Subfolder under Downloads/Prompt-Pilot
+                            --no-download       Only wait for results, do not download
+                            --timeout <seconds> Max wait per scene (default 600 video / 180 image)
+                            (plus --mode/--aspect/--count/--model/--agent/--technique for every scene)
+  download [urls...]      Download media already on the page (no regeneration)
+                          Options:
+                            --latest <n>        Take the newest n scanned items instead of urls
+                            --type <kind>       image | video | audio (with --latest)
+                            --name <stem>       File name stem (default "media")
+                            --folder <name>     Subfolder under Downloads/Prompt-Pilot
+  techniques [category]   List prompt presets (camera | product | transition | image)
+  status                  Show connected browsers and Flow tab readiness
   image [options]         Quick switch to Image mode (alias for config --mode image)
   video [options]         Quick switch to Video mode (alias for config --mode video)
   config [options]        Configure Google Flow generation settings without prompting
@@ -33,6 +53,8 @@ Commands:
                             --aspect <ratio>    Set aspect ratio (e.g. "16:9", "9:16", "1:1")
                             --count <number>    Set number of generations (e.g. 1, 2, 4)
                             --model <name>      Select model (e.g. "Veo", "Imagen", "Nano Banana")
+  scan-media              List generated media URLs on the active tab
+  upscale                 Trigger 1080p upscaled downloads on Flow video cards
   state                   Inspect active Google Flow toggles, modes, and prompt box readiness
   open-project            Open or create a Google Flow project to reveal the prompt box
   browsers                List all currently connected browser instances
@@ -45,6 +67,46 @@ Global Options:
   --token <secret>        Shared authentication secret (or env PROMPT_PILOT_TOKEN)
 `);
 }
+const flagValue = (flag: string) => {
+  const index = args.indexOf(flag);
+  return index >= 0 ? args[index + 1] : undefined;
+};
+
+const VALUE_FLAGS = new Set(['--site', '--mode', '--aspect', '--count', '--model', '--technique', '--browser', '--remote', '--token', '--file', '--folder', '--timeout', '--latest', '--type', '--name']);
+
+// Arguments that are not flags or flag values.
+function positionals(from = 0): string[] {
+  const out: string[] = [];
+  for (let i = from; i < args.length; i++) {
+    if (VALUE_FLAGS.has(args[i])) i++;
+    else if (!args[i].startsWith('--')) out.push(args[i]);
+  }
+  return out;
+}
+
+function parseConfigFlags(): { site: string; technique?: string; options: Record<string, unknown> } {
+  const options: Record<string, unknown> = {};
+  let site = 'Google Flow';
+  let technique: string | undefined;
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] === '--site' && args[i + 1]) site = args[++i];
+    else if (args[i] === '--mode' && args[i + 1]) options.mode = args[++i];
+    else if (args[i] === '--aspect' && args[i + 1]) options.aspectRatio = args[++i];
+    else if (args[i] === '--count' && args[i + 1]) options.count = Number(args[++i]);
+    else if (args[i] === '--model' && args[i + 1]) options.model = args[++i];
+    else if (args[i] === '--technique' && args[i + 1]) technique = args[++i];
+    else if (args[i] === '--agent') options.agent = true;
+    else if (args[i] === '--no-agent') options.agent = false;
+  }
+  return { site, technique, options };
+}
+
+function printJob(job: Job) {
+  const files = job.downloads.map((d) => (d.ok ? d.name : `${d.name} (failed: ${d.error})`));
+  const detail = job.error ?? job.progress ?? (files.length ? files.join(', ') : `${job.media.length} media item(s)`);
+  console.log(`[${job.id}] ${job.stem} ${job.status}${detail ? ` - ${detail}` : ''}${job.note ? ` (${job.note})` : ''}`);
+}
+
 async function waitForConnection(bridge: BridgeHost, maxWaitMs = 30000): Promise<void> {
   const start = Date.now();
   if (bridge.isConnected()) return;
@@ -72,8 +134,16 @@ async function main() {
     process.exit(0);
   }
 
-  const remoteArg = args.find((a, idx) => a === '--remote' ? args[idx + 1] : undefined);
-  const tokenArg = args.find((a, idx) => a === '--token' ? args[idx + 1] : undefined);
+  if (command === 'techniques') {
+    const category = positionals()[0];
+    for (const t of TECHNIQUES.filter((item) => !category || item.category === category)) {
+      console.log(`${t.id.padEnd(18)} ${t.category.padEnd(11)} ${t.phrase}`);
+    }
+    process.exit(0);
+  }
+
+  const remoteArg = flagValue('--remote');
+  const tokenArg = flagValue('--token');
   // When starting the server itself, it must listen locally (never act as a client)
   const bridge = new BridgeHost(9988, {
     remoteUrl: command === 'server' ? '' : remoteArg,
@@ -93,8 +163,7 @@ async function main() {
   try {
     await waitForConnection(bridge);
 
-    const explicitBrowser = args.find((a, idx) => a === '--browser' ? args[idx + 1] : undefined);
-    const targetBrowser = explicitBrowser || '1';
+    const targetBrowser = flagValue('--browser') || '1';
     switch (command) {
       case 'browsers': {
         const list = await bridge.getConnectedBrowsers();
@@ -115,34 +184,13 @@ async function main() {
       }
       case 'prompt': {
         const promptText = args[0];
-        if (!promptText) {
+        if (!promptText || promptText.startsWith('--')) {
           console.error('Error: Please provide a prompt text.');
           process.exit(1);
         }
 
-        let site = 'Google Flow';
-        let autoSend = true;
-        const configOptions: Record<string, unknown> = {};
-
-        for (let i = 1; i < args.length; i++) {
-          if (args[i] === '--site' && args[i + 1]) {
-            site = args[++i];
-          } else if (args[i] === '--no-autosend') {
-            autoSend = false;
-          } else if (args[i] === '--mode' && args[i + 1]) {
-            configOptions.mode = args[++i];
-          } else if (args[i] === '--aspect' && args[i + 1]) {
-            configOptions.aspectRatio = args[++i];
-          } else if (args[i] === '--count' && args[i + 1]) {
-            configOptions.count = Number(args[++i]);
-          } else if (args[i] === '--model' && args[i + 1]) {
-            configOptions.model = args[++i];
-          } else if (args[i] === '--agent') {
-            configOptions.agent = true;
-          } else if (args[i] === '--no-agent') {
-            configOptions.agent = false;
-          }
-        }
+        const { site, technique, options: configOptions } = parseConfigFlags();
+        const autoSend = !args.includes('--no-autosend');
 
         if (Object.keys(configOptions).length > 0) {
           console.log('Applying generation options:', configOptions);
@@ -153,41 +201,91 @@ async function main() {
         }
 
         console.log(`Sending prompt to ${site}...`);
-        const result = await bridge.sendAction('send_prompt', { prompt: promptText, site, autoSend }, 30000, targetBrowser);
+        const prompt = applyTechnique(promptText, technique);
+        const result = await bridge.sendAction('send_prompt', { prompt, site, autoSend }, 30000, targetBrowser);
         console.log(JSON.stringify(result, null, 2));
+        break;
+      }
+
+      case 'generate': {
+        const { site, technique, options } = parseConfigFlags();
+        const file = flagValue('--file');
+        const base = { ...options, technique } as Partial<Scene>;
+        const scenes: Scene[] = file
+          ? (JSON.parse(readFileSync(file, 'utf8')) as Scene[]).map((scene) => ({ ...base, ...scene }))
+          : positionals().map((prompt) => ({ ...base, prompt }));
+        if (!scenes.length) {
+          console.error('Error: Pass one or more prompts, or --file scenes.json.');
+          process.exit(1);
+        }
+        for (const scene of scenes) applyTechnique(scene.prompt, scene.technique);
+
+        const queue = new JobQueue(bridge);
+        const timeout = flagValue('--timeout');
+        const jobs = queue.add(scenes, {
+          site,
+          browser: targetBrowser,
+          download: !args.includes('--no-download'),
+          folder: flagValue('--folder'),
+          timeoutSeconds: timeout ? Number(timeout) : undefined,
+        });
+        console.log(`Queued ${jobs.length} scene(s). Scenes run one at a time with a pause between them.`);
+
+        const lastLine = new Map<string, string>();
+        for (;;) {
+          const { finished, queue: summary } = await queue.wait(undefined, 5000);
+          for (const job of jobs) {
+            const line = `${job.status}|${job.progress ?? ''}|${job.downloads.length}`;
+            if (lastLine.get(job.id) !== line) {
+              lastLine.set(job.id, line);
+              printJob(job);
+            }
+          }
+          if (finished) {
+            console.log(`Done: ${summary.done} ok, ${summary.failed} failed, ${summary.cancelled} cancelled.`);
+            break;
+          }
+          if (summary.pausedReason) console.log(summary.pausedReason);
+        }
+        break;
+      }
+
+      case 'download': {
+        const { site } = parseConfigFlags();
+        const media = await scanMedia(bridge, site, targetBrowser);
+        let urls = positionals();
+        const latest = Number(flagValue('--latest') ?? 0);
+        if (!urls.length && latest > 0) {
+          const type = flagValue('--type');
+          urls = media.filter((m) => !type || m.type === type).slice(-latest).map((m) => m.url);
+        }
+        if (!urls.length) {
+          console.error('Error: Pass media URLs, or --latest <n>.');
+          process.exit(1);
+        }
+        const byUrl = new Map(media.map((m) => [m.url, m]));
+        const items = urls.map((url) => byUrl.get(url) ?? { url, type: 'image' });
+        const names = mediaFileNames(items, flagValue('--name') ?? 'media', flagValue('--folder'));
+        const results = await downloadMedia(bridge, names, site, targetBrowser);
+        console.log(JSON.stringify(results, null, 2));
+        break;
+      }
+
+      case 'status': {
+        const { site } = parseConfigFlags();
+        const browsers = await bridge.getConnectedBrowsers();
+        const state = await bridge.sendAction('flow_state', { site }, 30000, targetBrowser);
+        console.log(JSON.stringify({ browsers, state }, null, 2));
         break;
       }
 
       case 'image':
       case 'video':
       case 'config': {
-        const configOptions: Record<string, unknown> = {};
-        if (command === 'image') {
-          configOptions.mode = 'image';
-          configOptions.agent = false;
-        }
-        if (command === 'video') {
-          configOptions.mode = 'video';
-          configOptions.agent = false;
-        }
-        let site = 'Google Flow';
-
-        for (let i = 0; i < args.length; i++) {
-          if (args[i] === '--site' && args[i + 1]) {
-            site = args[++i];
-          } else if (args[i] === '--mode' && args[i + 1]) {
-            configOptions.mode = args[++i];
-          } else if (args[i] === '--aspect' && args[i + 1]) {
-            configOptions.aspectRatio = args[++i];
-          } else if (args[i] === '--count' && args[i + 1]) {
-            configOptions.count = Number(args[++i]);
-          } else if (args[i] === '--model' && args[i + 1]) {
-            configOptions.model = args[++i];
-          } else if (args[i] === '--agent') {
-            configOptions.agent = true;
-          } else if (args[i] === '--no-agent') {
-            configOptions.agent = false;
-          }
+        const { site, options: configOptions } = parseConfigFlags();
+        if (command !== 'config') {
+          configOptions.mode = command;
+          if (configOptions.agent === undefined) configOptions.agent = false;
         }
 
         console.log('Applying Google Flow settings:', configOptions);
@@ -204,7 +302,8 @@ async function main() {
       }
 
       case 'scan-media': {
-        const result = await bridge.sendAction('scan_media', {}, 30000, targetBrowser);
+        const { site } = parseConfigFlags();
+        const result = await bridge.sendAction('scan_media', { site }, 30000, targetBrowser);
         console.log(JSON.stringify(result, null, 2));
         break;
       }
@@ -217,7 +316,7 @@ async function main() {
 
       case 'upscale': {
         console.log('Requesting Google Flow video upscale...');
-        const result = await bridge.sendAction('upscale_flow', {}, 30000, targetBrowser);
+        const result = await bridge.sendAction('upscale_flow', {}, 180000, targetBrowser);
         console.log(JSON.stringify(result, null, 2));
         break;
       }
@@ -232,9 +331,10 @@ async function main() {
   } catch (err: unknown) {
     const errorMsg = err instanceof Error ? err.message : String(err);
     console.error(`Error: ${errorMsg}`);
+    process.exitCode = 1;
   } finally {
     await bridge.close();
-    process.exit(0);
+    process.exit();
   }
 }
 

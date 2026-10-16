@@ -211,7 +211,31 @@ async function sendToContentScript(tabId, message) {
   }
 }
 
+// Saves media through chrome.downloads so the browser's own session cookies apply.
+async function downloadMediaItems(items) {
+  const list = Array.isArray(items) ? items : [];
+  const results = [];
+  for (const item of list) {
+    if (!item?.url || !item?.name) continue;
+    if (item.url.startsWith('blob:')) {
+      results.push({ url: item.url, name: item.name, ok: false, error: 'blob: URLs cannot be downloaded from the bridge' });
+      continue;
+    }
+    try {
+      const downloadId = await chrome.downloads.download({ url: item.url, filename: `Prompt-Pilot/${item.name}`, conflictAction: 'uniquify', saveAs: false });
+      results.push({ url: item.url, name: item.name, ok: true, downloadId });
+    } catch (err) {
+      results.push({ url: item.url, name: item.name, ok: false, error: err?.message || String(err) });
+    }
+  }
+  return { results };
+}
+
 async function handleBridgeAction(action, params) {
+  if (action === 'download_media') {
+    return downloadMediaItems(params.items);
+  }
+
   if (action === 'list_tabs') {
     const tabs = await chrome.tabs.query({});
     return tabs

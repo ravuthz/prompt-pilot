@@ -94,6 +94,36 @@ bun run cli prompt "Explain quantum computing briefly" --site "ChatGPT"
 bun run cli prompt "Review this TypeScript function" --site "Claude"
 ```
 
+#### Batch Generation (queue, wait, download)
+
+`generate` queues one Flow generation per scene, runs them one at a time with a randomised 20–45 s pause
+between them, waits until each scene's new media appears on the page, then downloads it to
+`Downloads/Prompt-Pilot/<folder>/<scene>.ext` through the browser (so your Flow session cookies apply).
+
+```bash
+# Several prompts, same settings
+bun run cli generate "A lighthouse at dawn" "The same lighthouse in a storm" \
+  --mode image --aspect 16:9 --folder lighthouse
+
+# Per-scene settings from a file
+bun run cli generate --file scenes.json --folder trailer
+# scenes.json: [{ "prompt": "...", "mode": "video", "model": "Veo 3.1 - Lite", "technique": "push-in", "name": "opening" }]
+
+# Prompt presets (camera moves, product shots, transitions, image looks)
+bun run cli techniques camera
+bun run cli prompt "A red sports car on a coastal road" --technique fpv-flythrough
+
+# Download what is already on the page, without regenerating
+bun run cli download --latest 4 --type video --name take --folder trailer
+
+# Browsers + Flow tab readiness in one call
+bun run cli status
+```
+
+A scene that shows no new media within its timeout (600 s video / 180 s otherwise, `--timeout` to change) is marked
+failed and **not** retried automatically: the generation may still be running in Flow, so check `scan-media`
+before re-running it and paying twice. Pacing is tunable with `PROMPT_PILOT_PAUSE_MIN_S` / `PROMPT_PILOT_PAUSE_MAX_S`.
+
 #### Multi-Browser Management
 
 When you have multiple Chrome or Brave windows open:
@@ -244,19 +274,30 @@ Add to your `claude_desktop_config.json`:
 
 ### Exposed MCP Tools Reference
 
-| Tool Name           | Description                                             | Key Parameters                                                                                    |
-| ------------------- | ------------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
-| `flow_send_prompt`  | Types & submits prompt with native browser typing.      | `prompt` _(req)_, `mode`, `aspectRatio`, `count`, `model`, `agent`, `browser`, `site`, `autoSend` |
-| `flow_image`        | Quick-switches Flow to Image mode with options.         | `aspectRatio`, `count`, `model`, `agent`, `browser`                                               |
-| `flow_video`        | Quick-switches Flow to Video mode with options.         | `aspectRatio`, `count`, `model`, `agent`, `browser`                                               |
-| `flow_configure`    | Configures Flow parameters without submitting prompts.  | `mode`, `aspectRatio`, `count`, `model`, `agent`, `browser`                                       |
-| `flow_open_project` | Enters or creates a project when on gallery page.       | `browser` _(optional)_                                                                            |
-| `flow_state`        | Returns active toggles, selected models, and readiness. | `browser` _(optional)_                                                                            |
-| `flow_scan_media`   | Scans page for generated image and video URLs.          | `site`, `browser` _(optional)_                                                                    |
-| `flow_upscale`      | Triggers 1080p upscaling across Flow video cards.       | `browser` _(optional)_                                                                            |
-| `browser_list`      | Lists all connected browser window IDs (`["1", "2"]`).  | None                                                                                              |
-| `tab_detect`        | Detects active platform on current tab.                 | `site`, `browser` _(optional)_                                                                    |
-| `tab_list`          | Lists open tabs in the browser.                         | `browser` _(optional)_                                                                            |
+| Tool Name           | Description                                                                                         | Key Parameters                                                                                                 |
+| ------------------- | --------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| `flow_status`       | Call first: connected browsers, Flow tab readiness, queue, and a prompt-planning playbook.          | `site`, `browser`                                                                                              |
+| `flow_generate`     | Queue scenes; runs one at a time with pacing, waits for each result, downloads it. Returns job ids. | `scenes[]` _(req: `prompt`, `mode`, `aspectRatio`, `count`, `model`, `agent`, `technique`, `name`)_, `download`, `folder`, `timeoutSeconds`, `browser` |
+| `flow_wait`         | Wait (≤ ~40 s per call) for job ids or slow-call task ids; call again until `finished` is true.     | `ids`, `timeoutSeconds`                                                                                        |
+| `flow_cancel`       | Cancel queued jobs that have not started.                                                           | `ids`                                                                                                          |
+| `flow_retry`        | Re-queue failed/cancelled jobs with the same settings and file names.                               | `ids`                                                                                                          |
+| `flow_techniques`   | Camera / product / transition / image prompt presets.                                               | `category`                                                                                                     |
+| `flow_download`     | Download media already on the page (no regeneration).                                               | `urls` or `latest` + `type`, `name`, `folder`, `browser`                                                       |
+| `flow_send_prompt`  | Type & submit one prompt and return immediately (untracked).                                        | `prompt` _(req)_, `mode`, `aspectRatio`, `count`, `model`, `agent`, `technique`, `site`, `autoSend`, `browser` |
+| `flow_image`        | Quick-switch Flow to Image mode.                                                                    | `aspectRatio`, `count`, `model`, `agent`, `browser`                                                            |
+| `flow_video`        | Quick-switch Flow to Video mode.                                                                    | `aspectRatio`, `count`, `model`, `agent`, `browser`                                                            |
+| `flow_configure`    | Configure Flow parameters without submitting prompts.                                               | `mode`, `aspectRatio`, `count`, `model`, `agent`, `browser`                                                    |
+| `flow_open_project` | Enter or create a project when on the gallery page.                                                 | `browser`                                                                                                      |
+| `flow_state`        | Active toggles, selected models, and prompt readiness.                                              | `browser`                                                                                                      |
+| `flow_scan_media`   | Generated image and video URLs on the page.                                                         | `site`, `browser`                                                                                              |
+| `flow_upscale`      | Trigger 1080p upscaled downloads across Flow video cards.                                           | `browser`                                                                                                      |
+| `browser_list`      | Connected browser IDs (`["1", "2"]`).                                                               | None                                                                                                           |
+| `tab_detect`        | Detect the platform on the current tab.                                                             | `site`, `browser`                                                                                              |
+| `tab_list`          | List open tabs in the browser.                                                                      | `browser`                                                                                                      |
+
+**Slow calls never hit the client's ~60 s timeout.** A call that runs longer than 45 s (`flow_upscale`,
+`flow_open_project`, large `flow_download`) answers with `still_working` and a `task_id`; pass it to `flow_wait`
+instead of repeating the call. Tune with `PROMPT_PILOT_PATIENCE_MS`.
 
 ---
 
