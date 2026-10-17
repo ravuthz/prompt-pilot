@@ -977,80 +977,194 @@
     return (element?.innerText || element?.textContent || '').replace(/\s+/g, ' ').trim();
   }
 
-  function visibleMoreButton(root) {
+  function visibleMoreButton(root, near) {
+    const area = near?.getBoundingClientRect();
     return [...root.querySelectorAll('button')].find((button) => {
+      if (area) {
+        // Must sit on (or just around) the video, not elsewhere on the page
+        const box = button.getBoundingClientRect();
+        const x = box.left + box.width / 2;
+        const y = box.top + box.height / 2;
+        if (x < area.left - 80 || x > area.right + 80 || y < area.top - 80 || y > area.bottom + 80) return false;
+      }
       if (!visible(button)) return false;
       const label = `${button.getAttribute('aria-label') || ''} ${button.getAttribute('title') || ''} ${button.querySelector('.google-symbols')?.textContent || ''} ${menuText(button)}`.toLowerCase();
       return /more_vert|more_horiz|more actions|options|(^|\s)more(\s|$)|⋮/.test(label);
     });
   }
 
-  function allMoreButtons() {
-    return [...document.querySelectorAll('button')].filter((button) => {
-      const icon = button.querySelector('.google-symbols')?.textContent?.trim().toLowerCase() || '';
-      const label = `${button.getAttribute('aria-label') || ''} ${button.getAttribute('title') || ''} ${icon} ${menuText(button)}`.toLowerCase();
-      return visible(button) && /more_vert|more_horiz|more actions|options|(^|\s)more(\s|$)|⋮/.test(label);
+  // Menu label without icon ligature text ("download Download", "chevron_right")
+  function menuLabel(element) {
+    let text = menuText(element);
+    element.querySelectorAll?.('.google-symbols, [class*="material-symbols"], [class*="material-icons"]').forEach((icon) => {
+      const ligature = menuText(icon);
+      if (ligature) text = text.replace(ligature, ' ');
     });
+    return text.replace(/\s+/g, ' ').trim();
+  }
+
+  function openMenus() {
+    return [...document.querySelectorAll('[role="menu"]')].filter(visible);
   }
 
   function visibleMenuItem(predicate) {
-    return [...document.querySelectorAll('[role="menuitem"], [data-radix-collection-item], button')]
-      .find((element) => visible(element) && !element.hasAttribute('data-disabled') && element.getAttribute('aria-disabled') !== 'true' && predicate(menuText(element)));
+    // Prefer the most recently opened menu (submenus render after their parent)
+    for (const menu of openMenus().reverse()) {
+      const match = [...menu.querySelectorAll('[role="menuitem"], [data-radix-collection-item], button')]
+        .find((element) => visible(element) && !element.hasAttribute('data-disabled') && element.getAttribute('aria-disabled') !== 'true' && predicate(menuLabel(element)));
+      if (match) return match;
+    }
+    return null;
   }
+
+  async function closeMenus() {
+    for (let attempt = 0; attempt < 3 && openMenus().length; attempt += 1) {
+      const target = document.activeElement || document.body;
+      target.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', bubbles: true, cancelable: true }));
+      await delay(150);
+    }
+  }
+
+  // Radix menu triggers open on pointerdown, not click
+  async function openMenuFrom(trigger) {
+    const before = openMenus().length;
+    const opts = { bubbles: true, cancelable: true, composed: true, view: window, button: 0 };
+    trigger.focus?.();
+    trigger.dispatchEvent(new PointerEvent('pointerdown', { ...opts, pointerId: 1, pointerType: 'mouse', isPrimary: true }));
+    trigger.dispatchEvent(new MouseEvent('mousedown', opts));
+    trigger.dispatchEvent(new PointerEvent('pointerup', { ...opts, pointerId: 1, pointerType: 'mouse', isPrimary: true }));
+    trigger.dispatchEvent(new MouseEvent('mouseup', opts));
+    if (await waitForCondition(() => openMenus().length > before, 1200, 80)) return true;
+    trigger.click();
+    return Boolean(await waitForCondition(() => openMenus().length > before, 1200, 80));
+  }
+
+  async function openSubmenu(item, predicate) {
+    item.click();
+    let found = await waitForCondition(() => visibleMenuItem(predicate), 1200, 80);
+    if (found) return found;
+    const opts = { bubbles: true, cancelable: true, composed: true, view: window };
+    item.dispatchEvent(new PointerEvent('pointermove', { ...opts, pointerId: 1, pointerType: 'mouse', isPrimary: true }));
+    item.focus?.();
+    item.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', code: 'ArrowRight', ...opts }));
+    found = await waitForCondition(() => visibleMenuItem(predicate), 1500, 80);
+    return found || null;
+  }
+
+  // Smallest ancestor of the video that is still a single card (holds only this video)
+  function videoCard(video) {
+    let card = video;
+    while (card.parentElement && card.parentElement !== document.body && card.parentElement.querySelectorAll('video').length === 1) {
+      card = card.parentElement;
+    }
+    return card;
+  }
+
+  function hover(element) {
+    const box = element.getBoundingClientRect();
+    const opts = { bubbles: true, composed: true, view: window, clientX: box.left + box.width / 2, clientY: box.top + box.height / 2 };
+    element.dispatchEvent(new PointerEvent('pointerover', { ...opts, pointerType: 'mouse' }));
+    element.dispatchEvent(new PointerEvent('pointerenter', { ...opts, bubbles: false, pointerType: 'mouse' }));
+    element.dispatchEvent(new MouseEvent('mouseover', opts));
+    element.dispatchEvent(new MouseEvent('mouseenter', { ...opts, bubbles: false }));
+    element.dispatchEvent(new PointerEvent('pointermove', { ...opts, pointerType: 'mouse' }));
+    element.dispatchEvent(new MouseEvent('mousemove', opts));
+  }
+
+  // Trusted mouse input via the background debugger; false when unavailable
+  async function realMouse(kind, x, y) {
+    try {
+      const resp = await chrome.runtime.sendMessage({ type: 'PROMPT_PILOT_REAL_MOUSE', kind, x: Math.round(x), y: Math.round(y) });
+      return Boolean(resp?.ok);
+    } catch {
+      return false;
+    }
+  }
+
+  function centerOf(element) {
+    const box = element.getBoundingClientRect();
+    return [box.left + box.width / 2, box.top + box.height / 2];
+  }
+
+  async function realClick(element) {
+    element.scrollIntoView?.({ block: 'nearest', behavior: 'auto' });
+    const [x, y] = centerOf(element);
+    return realMouse('click', x, y);
+  }
+
+  // Labels of buttons over the video, to explain a missing More button
+  function buttonsNear(video) {
+    const area = video.getBoundingClientRect();
+    return [...document.querySelectorAll('button, [role="button"]')].filter((button) => {
+      if (!visible(button)) return false;
+      const [x, y] = centerOf(button);
+      return x >= area.left - 80 && x <= area.right + 80 && y >= area.top - 80 && y <= area.bottom + 80;
+    }).map((button) => (button.getAttribute('aria-label') || menuText(button) || button.className || '?').slice(0, 40));
+  }
+
+  const isDownloadLabel = (text) => /^download\b/i.test(text);
+  const isUpscaledLabel = (text) => /1080p/i.test(text) && /upscal/i.test(text);
 
   async function upscaleFlowVideos() {
     if (adapter().name !== 'Google Flow') return { ok: false, error: '1080p upscaling is available only on Google Flow.' };
-    const videos = [...document.querySelectorAll('video')].filter(visible);
+    const cards = [...new Set([...document.querySelectorAll('video')].filter(visible).map(videoCard))];
     let completed = 0;
     const errors = [];
-    const attempted = new Set();
-    const globalMoreButtons = allMoreButtons();
+    await closeMenus();
 
-    const processMoreButton = async (moreButton, index) => {
-      if (!moreButton || attempted.has(moreButton)) return false;
-      attempted.add(moreButton);
-      moreButton.click();
+    for (let index = 0; index < cards.length; index += 1) {
+      const card = cards[index];
+      const label = `video ${index + 1}`;
+      card.scrollIntoView({ block: 'center', behavior: 'auto' });
       await delay(250);
-      const downloadItem = visibleMenuItem((text) => /^download$/i.test(text));
+      const video = card.querySelector('video') || card;
+      // The More button only renders while the pointer is over the card's top-right corner
+      const box = video.getBoundingClientRect();
+      await realMouse('move', box.left + box.width / 2, box.top + box.height / 2);
+      await realMouse('move', box.right - 24, box.top + 24);
+      hover(card);
+      hover(video);
+      // Only this card's own More button — never another card's, or the wrong video gets downloaded
+      const moreButton = await waitForCondition(() => visibleMoreButton(card, video) || visibleMoreButton(document, video), 2000, 100);
+      if (!moreButton) {
+        errors.push(`${label}: More (⋮) button not found on the card (buttons seen: ${buttonsNear(video).join(', ') || 'none'})`);
+        continue;
+      }
+      const before = openMenus().length;
+      const opened = ((await realClick(moreButton)) && await waitForCondition(() => openMenus().length > before, 1200, 80))
+        || await openMenuFrom(moreButton);
+      if (!opened) {
+        errors.push(`${label}: More menu did not open`);
+        continue;
+      }
+      const downloadItem = await waitForCondition(() => visibleMenuItem(isDownloadLabel), 1500, 80);
       if (!downloadItem) {
-        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
-        return false;
+        errors.push(`${label}: "Download" not in the More menu`);
+        await closeMenus();
+        continue;
       }
-      downloadItem.click();
-      await delay(250);
-      const upscaleItem = visibleMenuItem((text) => /^1080p\b/i.test(text) && /upscaled/i.test(text));
+      await realClick(downloadItem);
+      const upscaleItem = await waitForCondition(() => visibleMenuItem(isUpscaledLabel), 1200, 80)
+        || await openSubmenu(downloadItem, isUpscaledLabel);
       if (!upscaleItem) {
-        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
-        return false;
+        errors.push(`${label}: "Upscaled (1080p)" not in the Download menu`);
+        await closeMenus();
+        continue;
       }
-      upscaleItem.click();
-      await delay(400);
-      return true;
-    };
-
-    for (let index = 0; index < videos.length; index += 1) {
-      const video = videos[index];
-      video.scrollIntoView({ block: 'center', behavior: 'auto' });
-      let moreButton = null;
-      let ancestor = video;
-      for (let depth = 0; depth < 8 && ancestor; depth += 1, ancestor = ancestor.parentElement) {
-        ['mouseover', 'mouseenter', 'mousemove'].forEach((type) => ancestor.dispatchEvent(new MouseEvent(type, { bubbles: true, composed: true, clientX: video.getBoundingClientRect().right - 8, clientY: video.getBoundingClientRect().top + 8 })));
-        await delay(80);
-        moreButton = visibleMoreButton(ancestor);
-        if (moreButton) break;
-      }
-      const candidates = [moreButton, ...globalMoreButtons, ...allMoreButtons()].filter(Boolean);
-      let success = false;
-      for (const candidate of candidates) {
-        if (await processMoreButton(candidate, index)) {
-          success = true;
-          completed += 1;
-          break;
-        }
-      }
-      if (!success) errors.push(`video ${index + 1}: More → Download → 1080p Upscaled was not completed`);
+      if (!(await realClick(upscaleItem))) upscaleItem.click();
+      completed += 1;
+      await delay(600);
+      await closeMenus();
     }
-    return { ok: videos.length > 0, total: videos.length, completed, errors, error: videos.length ? undefined : 'No visible videos found. Scroll through the Flow gallery first.' };
+
+    if (!cards.length) return { ok: false, total: 0, completed, errors, error: 'No visible videos found. Scroll through the Flow gallery first.' };
+    return {
+      ok: completed > 0,
+      total: cards.length,
+      completed,
+      errors,
+      error: completed ? undefined : `No upscale was started: ${errors[0]}`,
+    };
   }
 
   function responseIsBusy() {

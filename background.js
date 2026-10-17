@@ -152,6 +152,50 @@ function isGoogleFlowUrl(urlStr) {
   }
 }
 
+// Tabs with a debugger session held open by a long-running action (e.g. upscale)
+const debuggerTabs = new Set();
+
+async function attachDebugger(tabId) {
+  if (debuggerTabs.has(tabId)) return false;
+  try {
+    await chrome.debugger.attach({ tabId }, '1.3');
+    debuggerTabs.add(tabId);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function detachDebugger(tabId) {
+  debuggerTabs.delete(tabId);
+  await chrome.debugger.detach({ tabId }).catch(() => {});
+}
+
+// Real (trusted) mouse input, so CSS :hover and hover-only controls actually appear
+async function realMouse(tabId, { kind, x, y }) {
+  const borrowed = debuggerTabs.has(tabId);
+  if (!borrowed && !(await attachDebugger(tabId))) return { ok: false, error: 'Could not attach debugger' };
+  const target = { tabId };
+  try {
+    await chrome.debugger.sendCommand(target, 'Input.dispatchMouseEvent', { type: 'mouseMoved', x, y, button: 'none', pointerType: 'mouse' });
+    if (kind === 'click') {
+      await chrome.debugger.sendCommand(target, 'Input.dispatchMouseEvent', { type: 'mousePressed', x, y, button: 'left', buttons: 1, clickCount: 1, pointerType: 'mouse' });
+      await chrome.debugger.sendCommand(target, 'Input.dispatchMouseEvent', { type: 'mouseReleased', x, y, button: 'left', buttons: 0, clickCount: 1, pointerType: 'mouse' });
+    }
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err?.message || String(err) };
+  } finally {
+    if (!borrowed) await detachDebugger(tabId);
+  }
+}
+
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (message?.type !== 'PROMPT_PILOT_REAL_MOUSE' || !sender.tab?.id) return;
+  realMouse(sender.tab.id, message).then(sendResponse);
+  return true;
+});
+
 async function sendToGoogleFlow(tab, prompt, autoSend) {
   const focused = await sendToContentScript(tab.id, { type: 'PROMPT_PILOT_FOCUS' });
   if (!focused?.ok) throw new Error(focused?.error || 'Could not focus the Google Flow prompt editor.');
@@ -278,8 +322,14 @@ async function handleBridgeAction(action, params) {
     }
 
     case 'upscale_flow': {
-      const resp = await sendToContentScript(tab.id, { type: 'PROMPT_PILOT_UPSCALE_FLOW' });
-      return { tabId: tab.id, response: resp };
+      // Hold one debugger session for the whole run instead of attaching per mouse move
+      const held = await attachDebugger(tab.id);
+      try {
+        const resp = await sendToContentScript(tab.id, { type: 'PROMPT_PILOT_UPSCALE_FLOW' });
+        return { tabId: tab.id, response: resp };
+      } finally {
+        if (held) await detachDebugger(tab.id);
+      }
     }
 
     case 'open_flow_project': {

@@ -588,7 +588,8 @@ const QUICK = {
   detect: () => action('detect', { site: $('site').value.trim() || undefined }),
   state: () => action('flow_state'),
   'open-project': () => action('open_flow_project'),
-  upscale: () => action('upscale_flow'),
+  // Walks every video card's menus, so allow far longer than the 30s default
+  upscale: () => api('/api/action', { action: 'upscale_flow', params: {}, browser: state.selected, timeoutMs: 600000 }),
 };
 
 document.querySelectorAll('[data-quick]').forEach((btn) => {

@@ -235,7 +235,7 @@ const TOOLS = [
   },
   {
     name: 'flow_upscale',
-    description: 'Trigger Google Flow 1080p upscaled downloads across visible video cards.',
+    description: 'Trigger Google Flow 1080p upscaled downloads (More → Download → Upscaled 1080p) on each visible video card. Returns total, completed, and per-video errors; ok is false when none started.',
     inputSchema: { type: 'object', properties: { browser: browserProp } },
     annotations: writes,
   },
@@ -392,7 +392,7 @@ async function callTool(name: string, args: Record<string, unknown>): Promise<un
     case 'flow_scan_media':
       return bridge.sendAction('scan_media', { site }, 30000, browser);
     case 'flow_upscale':
-      return patient('flow_upscale', bridge.sendAction('upscale_flow', { site }, 180000, browser));
+      return patient('flow_upscale', bridge.sendAction('upscale_flow', { site }, 600000, browser));
     case 'flow_open_project':
       return patient('flow_open_project', bridge.sendAction('open_flow_project', { site }, 60000, browser));
     case 'tab_detect':

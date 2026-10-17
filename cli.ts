@@ -316,7 +316,7 @@ async function main() {
 
       case 'upscale': {
         console.log('Requesting Google Flow video upscale...');
-        const result = await bridge.sendAction('upscale_flow', {}, 180000, targetBrowser);
+        const result = await bridge.sendAction('upscale_flow', {}, 600000, targetBrowser);
         console.log(JSON.stringify(result, null, 2));
         break;
       }

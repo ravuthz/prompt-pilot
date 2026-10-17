@@ -150,7 +150,7 @@ function errorMessage(err: unknown) {
 Bun.serve({
   port: PORT,
   hostname: HOST,
-  async fetch(req) {
+  async fetch(req, server) {
     const url = new URL(req.url);
 
     if (url.pathname === '/api/browsers' && req.method === 'GET') {
@@ -193,6 +193,8 @@ Bun.serve({
         return json({ success: false, error: 'Invalid JSON body' }, 400);
       }
       const { action, params = {}, browser, timeoutMs = 30000 } = body;
+      // Bun closes requests idle for 10s; the bridge's timeoutMs bounds this one instead
+      server.timeout(req, 0);
       if (!action || !ALLOWED_ACTIONS.has(action)) {
         return json({ success: false, error: `Unsupported action: ${action}` }, 400);
       }
