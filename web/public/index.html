@@ -49,8 +49,13 @@
 
     <section class="panel-grid" id="panel" hidden>
       <div class="stack">
-      <form class="card" id="promptForm">
-        <h2>Send prompt</h2>
+      <div class="card">
+      <div class="card-tabs" role="tablist" aria-label="Prompt panels">
+        <button type="button" role="tab" id="tab-prompt" aria-controls="promptPanel" aria-selected="true">Send prompt</button>
+        <button type="button" role="tab" id="tab-quick" aria-controls="quickPanel" aria-selected="false">Quick actions</button>
+      </div>
+      <div class="tab-panel" id="promptPanel" role="tabpanel" aria-labelledby="tab-prompt">
+      <form class="tab-section" id="promptForm">
         <div class="prompt-box">
           <textarea id="prompt" rows="4" placeholder="A cinematic neon cyberpunk alley in the rain" required></textarea>
           <button type="submit" class="send-btn" title="Send prompt" aria-label="Send prompt">
@@ -99,13 +104,47 @@
             </div>
           </div>
         </div>
+        <div class="row">
+          <label>Technique
+            <select id="technique"><option value="">None</option></select>
+          </label>
+          <div class="field">
+            <span>Auto-send</span>
+            <input type="hidden" id="autoSend" value="true" />
+            <div class="segmented" data-for="autoSend" role="group" aria-label="Auto-send">
+              <button type="button" data-value="true">Send</button>
+              <button type="button" data-value="false">Type only</button>
+            </div>
+          </div>
+        </div>
       </form>
 
-      <div class="card">
-        <h2>Quick actions</h2>
+      <form class="tab-section" id="queueForm">
+        <div class="card-head">
+          <h2>Generation queue <span class="muted" id="queueSummary"></span></h2>
+          <div class="actions">
+            <button type="button" class="btn ghost" id="cancelQueued">Cancel queued</button>
+            <button type="button" class="btn ghost" id="retryFailed">Retry failed</button>
+          </div>
+        </div>
+        <textarea id="scenes" rows="4" placeholder="One prompt per line, or a JSON array of scenes ({ prompt, mode, aspectRatio, count, model, agent, technique, name }). Settings above apply to every scene."></textarea>
+        <div class="row">
+          <label>Folder <input id="folder" placeholder="Downloads/Prompt-Pilot/…" /></label>
+          <label>Timeout (s) <input id="timeout" type="number" min="30" placeholder="600 video / 180 image" /></label>
+        </div>
+        <div class="row">
+          <label class="check"><input type="checkbox" id="download" checked /> Download results</label>
+          <button type="submit" class="btn primary">Queue scenes</button>
+        </div>
+        <ul class="job-list" id="jobList"></ul>
+      </form>
+      </div>
+
+      <div class="tab-panel" id="quickPanel" role="tabpanel" aria-labelledby="tab-quick" hidden>
         <div class="quick">
           <button class="btn" data-quick="image">Image mode</button>
           <button class="btn" data-quick="video">Video mode</button>
+          <button class="btn" data-quick="status">Status</button>
           <button class="btn" data-quick="detect">Detect site</button>
           <button class="btn" data-quick="state">Flow state</button>
           <button class="btn" data-quick="open-project">Open project</button>
@@ -117,6 +156,8 @@
         </div>
         <pre class="log" id="log"></pre>
       </div>
+      </div>
+
       </div>
 
       <div class="stack">
@@ -140,6 +181,12 @@
               </select>
               <button class="btn" id="scanMedia">Scan</button>
             </div>
+          </div>
+          <div class="row download-bar">
+            <input id="mediaName" placeholder="File name (media)" aria-label="File name stem" />
+            <input id="mediaFolder" placeholder="Folder" aria-label="Download folder" />
+            <button class="btn" id="downloadSelected" disabled>Download selected</button>
+            <button class="btn ghost" id="selectAllMedia">Select all</button>
           </div>
           <div class="media-grid" id="mediaList">
             <p class="muted">Click Scan to list generated media in the target tab.</p>

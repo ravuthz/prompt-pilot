@@ -220,3 +220,36 @@ textarea { resize: vertical; }
 }
 .send-btn:hover { filter: brightness(1.1); }
 .send-btn:disabled { opacity: .5; cursor: progress; }
+
+.download-bar { flex-wrap: wrap; align-items: center; }
+.download-bar input { flex: 1; min-width: 120px; }
+.media-item { position: relative; }
+.media-item .pick { position: absolute; top: 10px; left: 10px; width: 16px; height: 16px; margin: 0; }
+
+.job-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; max-height: 260px; overflow: auto; }
+.job-list:empty { display: none; }
+.job-list li {
+  display: flex; gap: 8px; align-items: center; padding: 4px 8px; border-radius: 5px;
+  background: var(--code); font-size: 12px; min-width: 0;
+}
+.job-list .meta { flex: 1; min-width: 0; }
+.job-list .stem { font-weight: 500; }
+.job-list .detail { color: var(--muted); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.job-list .detail.err { color: var(--bad); }
+.job-list button { flex-shrink: 0; padding: 2px 6px; font-size: 11px; }
+.pill { font-size: 10px; padding: 0 6px; border-radius: 4px; border: 1px solid var(--border); color: var(--muted); flex-shrink: 0; }
+.pill.running { border-color: var(--accent); color: var(--accent); }
+.pill.done { border-color: var(--ok); color: var(--ok); }
+.pill.failed { border-color: var(--bad); color: var(--bad); }
+
+/* "Send prompt" | "Quick actions" tabs inside one card */
+.card-tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--border); margin: -4px 0 4px; }
+.card-tabs button {
+  font: inherit; font-weight: 600; padding: 6px 12px; border: 0; border-bottom: 2px solid transparent;
+  margin-bottom: -1px; background: none; color: var(--muted); cursor: pointer;
+}
+.card-tabs button:hover { color: var(--text); }
+.card-tabs button[aria-selected="true"] { color: var(--text); border-bottom-color: var(--accent); }
+.tab-panel, .tab-section { display: flex; flex-direction: column; gap: 10px; }
+.tab-panel { gap: 16px; }
+.tab-section + .tab-section { border-top: 1px solid var(--border); padding-top: 14px; }

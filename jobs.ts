@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { BridgeHost, waitForConfigSettle } from './bridge-host';
+import { waitForConfigSettle, type BridgeHost } from './bridge-host';
 import { applyTechnique } from './presets';
 
 export type JobStatus = 'queued' | 'running' | 'done' | 'failed' | 'cancelled';
@@ -52,6 +52,9 @@ const POLL_MS = 5000;
 // Polls with the same media count before a partial result is accepted as final.
 const STABLE_POLLS = 3;
 
+// Anything that can forward an action to the extension (the web server passes a reconnecting wrapper).
+export type Bridge = Pick<BridgeHost, 'sendAction'>;
+
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 const errorText = (err: unknown) => (err instanceof Error ? err.message : String(err));
 const sanitize = (name: string) => name.replace(/[/\\?%*:|"<>]/g, '_').replace(/\s+/g, '-').trim();
@@ -66,12 +69,12 @@ export function sceneConfig(scene: Scene): Record<string, unknown> {
   return options;
 }
 
-export async function scanMedia(bridge: BridgeHost, site?: string, browser?: string): Promise<MediaItem[]> {
+export async function scanMedia(bridge: Bridge, site?: string, browser?: string): Promise<MediaItem[]> {
   const res = (await bridge.sendAction('scan_media', { site }, 30000, browser)) as { media?: MediaItem[] };
   return Array.isArray(res?.media) ? res.media : [];
 }
 
-async function isBusy(bridge: BridgeHost, site?: string, browser?: string): Promise<boolean> {
+async function isBusy(bridge: Bridge, site?: string, browser?: string): Promise<boolean> {
   try {
     const res = (await bridge.sendAction('response_state', { site }, 15000, browser)) as { busy?: boolean };
     return Boolean(res?.busy);
@@ -80,7 +83,7 @@ async function isBusy(bridge: BridgeHost, site?: string, browser?: string): Prom
   }
 }
 
-export async function downloadMedia(bridge: BridgeHost, items: { url: string; name: string }[], site?: string, browser?: string) {
+export async function downloadMedia(bridge: Bridge, items: { url: string; name: string }[], site?: string, browser?: string) {
   if (!items.length) return [];
   const res = (await bridge.sendAction('download_media', { items, site }, 60000, browser)) as {
     results?: { name: string; ok: boolean; error?: string }[];
@@ -97,7 +100,7 @@ export function mediaFileNames(media: MediaItem[], stem: string, folder?: string
 }
 
 // Types a scene into Flow and waits until its new media shows up on the page.
-async function runScene(bridge: BridgeHost, job: Job): Promise<void> {
+async function runScene(bridge: Bridge, job: Job): Promise<void> {
   const { scene, options } = job;
   const site = options.site || 'Google Flow';
   const browser = options.browser;
@@ -164,7 +167,7 @@ export class JobQueue {
   private lastFinished = 0;
   pausedReason: string | null = null;
 
-  constructor(private bridge: BridgeHost) {}
+  constructor(private bridge: Bridge) {}
 
   add(scenes: Scene[], options: BatchOptions = {}): Job[] {
     const offset = this.jobs.size;
