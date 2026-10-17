@@ -34,13 +34,9 @@
         </div>
       </div>
       <div class="stack">
-        <div class="card compact">
-          <div class="sk sk-title"></div>
-          <div class="sk sk-line"></div>
-          <div class="sk sk-line"></div>
-          <div class="sk sk-line"></div>
-        </div>
         <div class="card">
+          <div class="sk sk-line"></div>
+          <div class="sk sk-line"></div>
           <div class="sk sk-title"></div>
           <div class="sk-media"><div class="sk"></div><div class="sk"></div><div class="sk"></div><div class="sk"></div><div class="sk"></div><div class="sk"></div></div>
         </div>
@@ -161,35 +157,38 @@
       </div>
 
       <div class="stack">
-        <div class="card compact">
-          <div class="card-head">
-            <h2>Open tabs</h2>
-            <button class="btn ghost" id="reloadTabs">Reload</button>
+        <div class="card browser-window">
+          <div class="chrome-strip">
+            <ul class="chrome-tabs" id="tabList" role="tablist" aria-label="Open tabs"></ul>
           </div>
-          <ul class="tab-list" id="tabList"></ul>
-        </div>
-
-        <div class="card">
-          <div class="card-head">
-            <h2>Media list <span class="muted" id="mediaCount"></span></h2>
-            <div class="actions">
-              <select id="mediaFilter" aria-label="Filter media type">
-                <option value="">All</option>
-                <option value="image">Images</option>
-                <option value="video">Videos</option>
-                <option value="audio">Audio</option>
-              </select>
-              <button class="btn" id="scanMedia">Scan</button>
+          <div class="chrome-toolbar">
+            <button class="icon-btn" id="reloadTabs" title="Reload tabs" aria-label="Reload tabs">
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/></svg>
+            </button>
+            <div class="omnibox" id="tabUrl" title="">No tab selected</div>
+          </div>
+          <div class="browser-body">
+            <div class="card-head">
+              <h2>Media list <span class="muted" id="mediaCount"></span></h2>
+              <div class="actions">
+                <select id="mediaFilter" aria-label="Filter media type">
+                  <option value="">All</option>
+                  <option value="image">Images</option>
+                  <option value="video">Videos</option>
+                  <option value="audio">Audio</option>
+                </select>
+                <button class="btn" id="scanMedia">Scan</button>
+              </div>
             </div>
-          </div>
-          <div class="row download-bar">
-            <input id="mediaName" placeholder="File name (media)" aria-label="File name stem" />
-            <input id="mediaFolder" placeholder="Folder" aria-label="Download folder" />
-            <button class="btn" id="downloadSelected" disabled>Download selected</button>
-            <button class="btn ghost" id="selectAllMedia">Select all</button>
-          </div>
-          <div class="media-grid" id="mediaList">
-            <p class="muted">Click Scan to list generated media in the target tab.</p>
+            <div class="row download-bar">
+              <input id="mediaName" placeholder="File name (media)" aria-label="File name stem" />
+              <input id="mediaFolder" placeholder="Folder" aria-label="Download folder" />
+              <button class="btn" id="downloadSelected" disabled>Download selected</button>
+              <button class="btn ghost" id="selectAllMedia">Select all</button>
+            </div>
+            <div class="media-grid" id="mediaList">
+              <p class="muted">Click Scan to list generated media in the target tab.</p>
+            </div>
           </div>
         </div>
       </div>

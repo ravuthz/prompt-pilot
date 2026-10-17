@@ -197,6 +197,7 @@ function selectBrowser(id) {
   state.selected = id;
   storageSet(LAST_BROWSER_KEY, id);
   restoreConfig(id);
+  targetTabId = null;
   mediaItems = [];
   selectedMedia.clear();
   syncDownloadButton();
@@ -207,51 +208,92 @@ function selectBrowser(id) {
 
 /* ---------- Open tabs in selected browser ---------- */
 
+let openTabs = [];
+let targetTabId = null;
+
+function hostOf(url) {
+  try { return new URL(url).hostname; } catch { return url; }
+}
+
+function renderTabs() {
+  const list = $('tabList');
+  list.replaceChildren();
+  const site = $('site').value.trim();
+  const target = openTabs.find((t) => t.id === targetTabId)
+    || openTabs.find((t) => site && hostOf(t.url) === site)
+    || openTabs.find((t) => t.active)
+    || openTabs[0];
+  targetTabId = target?.id ?? null;
+
+  for (const tab of openTabs) {
+    const li = document.createElement('li');
+    li.className = 'chrome-tab';
+    li.setAttribute('role', 'tab');
+    li.setAttribute('aria-selected', String(tab.id === targetTabId));
+    li.tabIndex = 0;
+    li.title = `${tab.title || '(untitled)'}\n${tab.url}`;
+
+    const icon = document.createElement('span');
+    icon.className = 'favicon';
+    if (tab.favIconUrl) {
+      const img = document.createElement('img');
+      img.src = tab.favIconUrl;
+      img.alt = '';
+      img.addEventListener('error', () => img.remove());
+      icon.append(img);
+    }
+    const title = document.createElement('span');
+    title.className = 'title';
+    title.textContent = tab.title || '(untitled)';
+    li.append(icon, title);
+    if (tab.active) {
+      const dot = document.createElement('span');
+      dot.className = 'active-dot';
+      dot.title = 'Active tab in browser';
+      li.append(dot);
+    }
+
+    const pick = () => {
+      if (tab.id === targetTabId) return;
+      targetTabId = tab.id;
+      $('site').value = hostOf(tab.url);
+      saveConfig();
+      renderTabs();
+      loadMedia($('scanMedia'));
+    };
+    li.addEventListener('click', pick);
+    li.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); pick(); }
+    });
+    list.append(li);
+  }
+
+  const omnibox = $('tabUrl');
+  omnibox.textContent = target ? target.url : 'No tab selected';
+  omnibox.title = target ? target.url : '';
+}
+
 async function loadTabs() {
   const list = $('tabList');
-  list.innerHTML = '<li class="muted">Loading…</li>';
+  const reload = $('reloadTabs');
+  reload.classList.add('spinning');
   try {
     const tabs = await action('list_tabs');
-    list.replaceChildren();
-    if (!Array.isArray(tabs) || tabs.length === 0) {
+    openTabs = Array.isArray(tabs) ? tabs : [];
+    if (openTabs.length === 0) {
       list.innerHTML = '<li class="muted">No web tabs open.</li>';
+      $('tabUrl').textContent = 'No tab selected';
       return;
     }
-    for (const tab of tabs) {
-      const li = document.createElement('li');
-      const meta = document.createElement('div');
-      meta.className = 'meta';
-      const title = document.createElement('div');
-      title.className = 'title';
-      title.textContent = tab.title || '(untitled)';
-      const url = document.createElement('div');
-      url.className = 'url';
-      url.textContent = tab.url;
-      meta.append(title, url);
-      li.append(meta);
-      if (tab.active) {
-        const badge = document.createElement('span');
-        badge.className = 'badge';
-        badge.textContent = 'active';
-        li.append(badge);
-      }
-      const use = document.createElement('button');
-      use.className = 'btn ghost';
-      use.textContent = 'Target';
-      use.title = 'Use this tab\'s host as the prompt site';
-      use.addEventListener('click', () => {
-        try { $('site').value = new URL(tab.url).hostname; } catch { $('site').value = tab.url; }
-        saveConfig();
-      });
-      li.append(use);
-      list.append(li);
-    }
+    renderTabs();
   } catch (err) {
     list.replaceChildren();
     const li = document.createElement('li');
     li.className = 'muted';
     li.textContent = err.message;
     list.append(li);
+  } finally {
+    reload.classList.remove('spinning');
   }
 }
 

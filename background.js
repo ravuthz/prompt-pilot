@@ -240,7 +240,7 @@ async function handleBridgeAction(action, params) {
     const tabs = await chrome.tabs.query({});
     return tabs
       .filter(t => t.url && !t.url.startsWith('chrome://') && !t.url.startsWith('brave://'))
-      .map(t => ({ id: t.id, url: t.url, title: t.title, active: t.active }));
+      .map(t => ({ id: t.id, url: t.url, title: t.title, active: t.active, favIconUrl: t.favIconUrl }));
   }
 
   const tab = await findTargetTab(params.site);
@@ -306,7 +306,7 @@ async function handleBridgeAction(action, params) {
       const tabs = await chrome.tabs.query({});
       return tabs
         .filter(t => t.url && !t.url.startsWith('chrome://'))
-        .map(t => ({ id: t.id, url: t.url, title: t.title, active: t.active }));
+        .map(t => ({ id: t.id, url: t.url, title: t.title, active: t.active, favIconUrl: t.favIconUrl }));
     }
 
     default:
