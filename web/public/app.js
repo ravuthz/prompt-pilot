@@ -23,6 +23,27 @@ function setStatus(kind, text) {
   $('statusText').textContent = text;
 }
 
+// Signed-in Flow account and credits per browser: the selected one is shown in the top bar, every one names its tab.
+async function loadAccounts() {
+  const ids = [...state.browsers];
+  const results = await Promise.all(ids.map((id) =>
+    api('/api/action', { action: 'flow_account', params: {}, browser: id }).catch(() => null)));
+  if (ids.join() !== state.browsers.join()) return;
+  state.accounts = Object.fromEntries(ids.map((id, i) => [id, results[i]]));
+  renderBrowserTabs();
+  renderAccount();
+}
+
+function renderAccount() {
+  const data = state.accounts?.[state.selected];
+  const box = $('account');
+  box.hidden = !data;
+  if (!data) return;
+  $('accountEmail').textContent = data.email || 'Unknown account';
+  $('accountCredits').textContent = typeof data.credits === 'number' ? `Flow credits: ${data.credits.toLocaleString()}` : '';
+  box.title = data.tier ? `Plan: ${data.tier}` : '';
+}
+
 function log(label, data, isError = false) {
   const line = document.createElement('div');
   const ts = document.createElement('span');
@@ -153,7 +174,11 @@ function renderBrowserTabs() {
     btn.setAttribute('role', 'tab');
     btn.setAttribute('aria-selected', String(id === state.selected));
     btn.innerHTML = '<span class="dot"></span>';
-    btn.append(`Browser ${id}`);
+    const info = state.browserInfo?.[id];
+    const email = state.accounts?.[id]?.email;
+    const label = email ? email.replace(/@gmail\.com$/i, '') : `${info?.name || 'Browser'} · ${id.slice(0, 6)}`;
+    btn.append(info ? `${info.index}. ${label}` : `Browser ${id}`);
+    btn.title = [email, info?.name, `id ${id}`].filter(Boolean).join(' · ');
     btn.addEventListener('click', () => selectBrowser(id));
     nav.append(btn);
   }
@@ -173,7 +198,9 @@ async function loadBrowsers() {
   const previous = state.selected;
   try {
     const list = await api('/api/browsers');
-    state.browsers = (Array.isArray(list) ? list : []).sort((a, b) => Number(a) - Number(b));
+    const items = (Array.isArray(list) ? list : []).map((b, i) => (typeof b === 'string' ? { id: b, index: i + 1 } : b));
+    state.browserInfo = Object.fromEntries(items.map((b) => [b.id, b]));
+    state.browsers = items.map((b) => b.id);
     setStatus('ok', `Bridge connected · ${state.browsers.length} browser${state.browsers.length === 1 ? '' : 's'}`);
   } catch (err) {
     state.browsers = [];
@@ -186,6 +213,8 @@ async function loadBrowsers() {
     if (state.selected) restoreConfig(state.selected);
   }
   renderBrowserTabs();
+  renderAccount();
+  loadAccounts();
   if (state.selected) {
     loadTabs();
     if (state.selected !== previous) loadMedia($('scanMedia'));
@@ -202,6 +231,7 @@ function selectBrowser(id) {
   selectedMedia.clear();
   syncDownloadButton();
   renderBrowserTabs();
+  renderAccount();
   loadTabs();
   loadMedia($('scanMedia'));
 }

@@ -47,7 +47,7 @@ test('stdio MCP connects to a remote authenticated bridge', async () => {
   expect(tools.tools.some((tool) => tool.name === 'browser_list')).toBe(true);
   const result = await client.callTool({ name: 'browser_list', arguments: {} });
   expect(result.isError).not.toBe(true);
-  expect(result.content).toEqual([{ type: 'text', text: '[\n  "1"\n]' }]);
+  expect(JSON.parse((result.content as { text: string }[])[0].text)).toEqual([{ id: '1', index: 1 }]);
   expect(messages).toContainEqual({ type: 'REGISTER', client: 'cli-worker', token });
   expect(messages).toContainEqual(expect.objectContaining({ action: 'list_browsers', token }));
 });

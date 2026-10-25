@@ -45,6 +45,11 @@ body {
 }
 .brand { font-weight: 700; font-size: 16px; }
 .brand span { color: var(--accent); }
+.topbar-right { display: flex; align-items: center; gap: 16px; min-width: 0; }
+.account { display: flex; align-items: center; gap: 8px; min-width: 0; color: var(--muted); }
+.account #accountEmail { max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.account .credits { padding: 2px 8px; border: 1px solid var(--border); border-radius: 999px; color: var(--accent); white-space: nowrap; }
+.account .credits:empty { display: none; }
 .status { display: flex; align-items: center; gap: 8px; color: var(--muted); }
 .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
 .status.ok .dot { background: var(--ok); }
@@ -54,7 +59,7 @@ body {
 .browser-tabs {
   display: flex;
   gap: 4px;
-  padding: 0 20px;
+  padding: 0 0 0 20px;
   background: var(--surface);
   border-bottom: 1px solid var(--border);
   overflow-x: auto;
@@ -79,7 +84,16 @@ body {
   font-weight: 600;
 }
 .browser-tab .dot { background: var(--ok); }
-.browser-tab.refresh { margin-left: auto; }
+.browser-tab.refresh {
+  /* Pinned to the right edge while the tabs scroll underneath */
+  position: sticky;
+  right: 0;
+  flex-shrink: 0;
+  margin-left: auto;
+  padding-right: 20px;
+  background: var(--surface);
+  box-shadow: -12px 0 12px -4px var(--surface);
+}
 
 main { padding: 20px; }
 

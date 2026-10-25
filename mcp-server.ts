@@ -9,7 +9,7 @@ import {
   ListToolsRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js';
 import { BridgeHost, waitForConfigSettle } from './bridge-host';
-import { JobQueue, downloadMedia, mediaFileNames, scanMedia, type Scene } from './jobs';
+import { JobQueue, downloadMedia, flowAccounts, mediaFileNames, scanMedia, type Scene } from './jobs';
 import { PLAYBOOK, TECHNIQUES, applyTechnique } from './presets';
 
 const httpMode = process.argv.includes('--http');
@@ -69,7 +69,11 @@ async function waitFor(ids: string[] | undefined, timeoutSeconds: number) {
 
 const browserProp = {
   type: 'string',
-  description: 'Target browser ID from browser_list (optional, defaults to "1").',
+  description: 'Target browser id from browser_list, or its 1-based index (optional, defaults to "1" = first connected).',
+};
+const accountProps = {
+  browser: browserProp,
+  all: { type: 'boolean', description: 'Check every connected browser instead of one.' },
 };
 const siteProp = {
   type: 'string',
@@ -217,8 +221,20 @@ const TOOLS = [
   },
   {
     name: 'browser_list',
-    description: 'List all connected browser instances (Chrome / Brave windows).',
+    description: 'List connected browser instances (Chrome / Brave profiles) with their unique id, index, browser name and connect time.',
     inputSchema: { type: 'object', properties: {} },
+    annotations: readOnly,
+  },
+  {
+    name: 'flow_credits',
+    description: 'Check the remaining Google Flow AI credits (and plan tier) of the account signed in on the Flow tab.',
+    inputSchema: { type: 'object', properties: accountProps },
+    annotations: readOnly,
+  },
+  {
+    name: 'flow_gmail',
+    description: 'Check which Gmail / Google account is signed in to Google Flow in the browser.',
+    inputSchema: { type: 'object', properties: accountProps },
     annotations: readOnly,
   },
   {
@@ -290,7 +306,7 @@ async function callTool(name: string, args: Record<string, unknown>): Promise<un
 
   switch (name) {
     case 'flow_status': {
-      const browsers = await bridge.getConnectedBrowsers().catch(() => []);
+      const browsers = await bridge.listBrowsers().catch(() => []);
       const state = bridge.isConnected()
         ? await bridge.sendAction('flow_state', { site }, 30000, browser).catch((err: Error) => ({ error: err.message }))
         : { error: 'Prompt Pilot extension is not connected.' };
@@ -386,7 +402,13 @@ async function callTool(name: string, args: Record<string, unknown>): Promise<un
     }
 
     case 'browser_list':
-      return bridge.getConnectedBrowsers();
+      return bridge.listBrowsers();
+    case 'flow_credits':
+      return (await flowAccounts(bridge, browser, args.all === true))
+        .map(({ browser, browserName, email, credits, tier, error }) => ({ browser, browserName, email, credits, tier, ...(error ? { error } : {}) }));
+    case 'flow_gmail':
+      return (await flowAccounts(bridge, browser, args.all === true))
+        .map(({ browser, browserName, email, name, error }) => ({ browser, browserName, email, name, ...(error ? { error } : {}) }));
     case 'flow_state':
       return bridge.sendAction('flow_state', { site }, 30000, browser);
     case 'flow_scan_media':

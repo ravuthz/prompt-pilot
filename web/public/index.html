@@ -9,7 +9,13 @@
 <body>
   <header class="topbar">
     <div class="brand">Prompt Pilot <span>Web</span></div>
-    <div class="status" id="status"><span class="dot"></span><span id="statusText">Connecting…</span></div>
+    <div class="topbar-right">
+      <div class="account" id="account" hidden>
+        <span class="credits" id="accountCredits"></span>
+        <span id="accountEmail"></span>
+      </div>
+      <div class="status" id="status"><span class="dot"></span><span id="statusText">Connecting…</span></div>
+    </div>
   </header>
 
   <nav class="browser-tabs" id="browserTabs" role="tablist" aria-label="Connected browsers">

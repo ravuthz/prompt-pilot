@@ -12,6 +12,7 @@ const PUBLIC_DIR = join(import.meta.dir, 'public');
 // Same actions the CLI and MCP server forward to the extension
 const ALLOWED_ACTIONS = new Set([
   'detect',
+  'flow_account',
   'list_tabs',
   'send_prompt',
   'flow_config',
@@ -155,7 +156,7 @@ Bun.serve({
 
     if (url.pathname === '/api/browsers' && req.method === 'GET') {
       try {
-        const browsers = await withBridge((b) => b.getConnectedBrowsers());
+        const browsers = await withBridge((b) => b.listBrowsers());
         return json({ success: true, data: browsers });
       } catch (err) {
         return json({ success: false, error: errorMessage(err) }, 502);

@@ -129,11 +129,15 @@ before re-running it and paying twice. Pacing is tunable with `PROMPT_PILOT_PAUS
 When you have multiple Chrome or Brave windows open:
 
 ```bash
-# List all connected browser instance numbers
+# List connected browsers. Each extension profile keeps a unique id across restarts.
 bun run cli browsers
-# Output: ["1", "2"]
+# Output: [{ "id": "3f9a1c0b2d4e", "index": 1, "name": "Chrome", "connectedAt": "..." }, ...]
 
-# Target a specific browser (defaults to 1 if omitted)
+# Which Google account / how many AI credits each browser's Flow tab has
+bun run cli gmail --all
+bun run cli credits --browser 3f9a1c0b2d4e
+
+# Target a specific browser by id, or by index (defaults to 1 = first connected)
 bun run cli image --aspect 16:9 --browser 1
 bun run cli video --aspect 9:16 --browser 2
 bun run cli list-tabs --browser 2
@@ -299,7 +303,9 @@ For Codex stdio, run `codex mcp add prompt-pilot -- "$(pwd -P)/mcp.sh"` from the
 | `flow_state`        | Active toggles, selected models, and prompt readiness.                                              | `browser`                                                                                                      |
 | `flow_scan_media`   | Generated image and video URLs on the page.                                                         | `site`, `browser`                                                                                              |
 | `flow_upscale`      | Trigger 1080p upscaled downloads across Flow video cards.                                           | `browser`                                                                                                      |
-| `browser_list`      | Connected browser IDs (`["1", "2"]`).                                                               | None                                                                                                           |
+| `browser_list`      | Connected browsers with unique `id`, `index`, `name`, `connectedAt`.                                | None                                                                                                           |
+| `flow_credits`      | Remaining Flow AI credits and plan tier of the signed-in account.                                   | `browser`, `all`                                                                                               |
+| `flow_gmail`        | Gmail / Google account signed in to Flow.                                                           | `browser`, `all`                                                                                               |
 | `tab_detect`        | Detect the platform on the current tab.                                                             | `site`, `browser`                                                                                              |
 | `tab_list`          | List open tabs in the browser.                                                                      | `browser`                                                                                                      |
 

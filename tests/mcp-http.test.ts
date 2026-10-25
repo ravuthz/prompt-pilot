@@ -44,7 +44,7 @@ test('PM2 HTTP mode serves authenticated MCP and the WebSocket bridge together',
       browser!.once('open', resolve);
       browser!.once('error', reject);
     });
-    browser.send(JSON.stringify({ type: 'REGISTER', client: 'chrome-extension', token }));
+    browser.send(JSON.stringify({ type: 'REGISTER', client: 'chrome-extension', token, browserId: 'abc123def456', browserName: 'Chrome' }));
 
     client = new Client({ name: 'http-test', version: '1.0.0' });
     await client.connect(new StreamableHTTPClientTransport(new URL(url), {
@@ -52,7 +52,9 @@ test('PM2 HTTP mode serves authenticated MCP and the WebSocket bridge together',
     }));
     expect((await client.listTools()).tools.some((tool) => tool.name === 'browser_list')).toBe(true);
     const result = await client.callTool({ name: 'browser_list', arguments: {} });
-    expect(result.content).toEqual([{ type: 'text', text: '[\n  "1"\n]' }]);
+    expect(JSON.parse((result.content as { text: string }[])[0].text)).toEqual([
+      expect.objectContaining({ id: 'abc123def456', index: 1, name: 'Chrome' }),
+    ]);
   } finally {
     await client?.close().catch(() => {});
     browser?.close();

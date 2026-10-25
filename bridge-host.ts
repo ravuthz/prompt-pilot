@@ -21,6 +21,14 @@ export interface ConnectedBrowser {
   id: string;
   ws: WebSocket;
   connectedAt: number;
+  name?: string;
+}
+
+export interface BrowserInfo {
+  id: string;
+  index: number;
+  name?: string;
+  connectedAt?: string;
 }
 
 // Google Flow needs time to apply setting changes before the next request.
@@ -173,14 +181,13 @@ export class BridgeHost {
         }
         if (msg.type === 'REGISTER') {
           if (msg.client === 'chrome-extension' || msg.client === 'prompt-pilot-client') {
-            let index = 1;
-            while (this.browserMap.has(String(index))) {
-              index++;
-            }
-            const bId = String(index);
-            this.browserMap.set(bId, { id: bId, ws, connectedAt: Date.now() });
+            const bId = this.allocateBrowserId(msg.browserId);
+            const stale = this.browserMap.get(bId);
+            if (stale && stale.ws !== ws) this.wsToBrowserId.delete(stale.ws);
+            const name = typeof msg.browserName === 'string' ? msg.browserName : undefined;
+            this.browserMap.set(bId, { id: bId, ws, connectedAt: Date.now(), name });
             this.wsToBrowserId.set(ws, bId);
-            console.error(`[BridgeServer] Registered browser instance: ${bId} (total active: ${this.browserMap.size})`);
+            console.error(`[BridgeServer] Registered browser instance: ${bId}${name ? ` (${name})` : ''} (total active: ${this.browserMap.size})`);
           }
           return;
         }
@@ -196,15 +203,14 @@ export class BridgeHost {
 
         if (this.isServer) {
           if (msg.action === 'list_browsers') {
-            const list = Array.from(this.browserMap.keys());
+            const list = this.browserInfoList();
             ws.send(JSON.stringify({ id: msg.id, success: true, data: list }));
             return;
           }
 
           if (msg.action) {
-            const targetId = msg.targetBrowserId || msg.params?.browser;
-            if (targetId && this.browserMap.has(targetId)) {
-              const target = this.browserMap.get(targetId);
+            const target = this.resolveBrowser(msg.targetBrowserId || msg.params?.browser);
+            if (target) {
               if (target && target.ws.readyState === WebSocket.OPEN) {
                 target.ws.send(data.toString());
               }
@@ -267,7 +273,7 @@ export class BridgeHost {
       this.authenticatedSockets.delete(ws);
       const bId = this.wsToBrowserId.get(ws);
       if (bId) {
-        this.browserMap.delete(bId);
+        if (this.browserMap.get(bId)?.ws === ws) this.browserMap.delete(bId);
         this.wsToBrowserId.delete(ws);
         console.error(`[BridgeServer] Disconnected browser instance: ${bId} (remaining: ${this.browserMap.size})`);
       }
@@ -277,16 +283,53 @@ export class BridgeHost {
     });
   }
 
-  async getConnectedBrowsers(): Promise<string[]> {
-    if (this.isServer) {
-      return Array.from(this.browserMap.keys());
-    }
+  // Extensions send a persistent id; a live duplicate (same profile reconnecting) takes over the slot.
+  // Old extensions without one get the lowest free number, as before.
+  private allocateBrowserId(requested: unknown): string {
+    if (typeof requested === 'string' && /^[\w-]{1,64}$/.test(requested)) return requested;
+    let index = 1;
+    while (this.browserMap.has(String(index))) index++;
+    return String(index);
+  }
+
+  // Accepts a browser id, or a 1-based position in the list ("1" = first connected) for older callers.
+  private resolveBrowser(target: unknown): ConnectedBrowser | undefined {
+    if (typeof target !== 'string' || !target) return undefined;
+    const exact = this.browserMap.get(target);
+    if (exact) return exact;
+    if (/^\d+$/.test(target)) return this.sortedBrowsers()[Number(target) - 1];
+    return undefined;
+  }
+
+  private sortedBrowsers(): ConnectedBrowser[] {
+    return [...this.browserMap.values()].sort((a, b) => a.connectedAt - b.connectedAt);
+  }
+
+  private browserInfoList(): BrowserInfo[] {
+    return this.sortedBrowsers().map((b, i) => ({
+      id: b.id,
+      index: i + 1,
+      name: b.name,
+      connectedAt: new Date(b.connectedAt).toISOString(),
+    }));
+  }
+
+  async listBrowsers(): Promise<BrowserInfo[]> {
+    if (this.isServer) return this.browserInfoList();
     const res = await this.sendAction('list_browsers');
-    if (Array.isArray(res)) return res;
-    if (res && typeof res === 'object') {
-      return Object.values(res).filter((v): v is string => typeof v === 'string');
-    }
-    return [];
+    const list = Array.isArray(res) ? res : res && typeof res === 'object' ? Object.values(res) : [];
+    // Older bridge servers answer with plain id strings.
+    return list
+      .map((item, i): BrowserInfo | null => {
+        if (typeof item === 'string') return { id: item, index: i + 1 };
+        if (item && typeof item === 'object' && typeof (item as BrowserInfo).id === 'string') return item as BrowserInfo;
+        return null;
+      })
+      .filter((b): b is BrowserInfo => b !== null);
+  }
+
+  async getConnectedBrowsers(): Promise<string[]> {
+    return (await this.listBrowsers()).map((b) => b.id);
   }
 
   isConnected(): boolean {
@@ -323,8 +366,8 @@ export class BridgeHost {
 
     const raw = JSON.stringify(payload);
     if (this.isServer) {
-      if (targetBrowserId && this.browserMap.has(targetBrowserId)) {
-        const item = this.browserMap.get(targetBrowserId)!;
+      const item = this.resolveBrowser(targetBrowserId);
+      if (item) {
         if (item.ws.readyState === WebSocket.OPEN) {
           item.ws.send(raw);
         }

@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 import { readFileSync } from 'node:fs';
 import { BridgeHost, CONFIG_SETTLE_MS, waitForConfigSettle } from './bridge-host';
-import { JobQueue, downloadMedia, mediaFileNames, scanMedia, type Job, type Scene } from './jobs';
+import { JobQueue, downloadMedia, flowAccounts, mediaFileNames, scanMedia, type Job, type Scene } from './jobs';
 import { TECHNIQUES, applyTechnique } from './presets';
 
 const command = process.argv[2];
@@ -57,12 +57,15 @@ Commands:
   upscale                 Trigger 1080p upscaled downloads on Flow video cards
   state                   Inspect active Google Flow toggles, modes, and prompt box readiness
   open-project            Open or create a Google Flow project to reveal the prompt box
-  browsers                List all currently connected browser instances
+  browsers                List connected browser instances (unique id, index, name, connected time)
+  credits [--all]         Show remaining Google Flow AI credits of the signed-in account
+  gmail [--all]           Show which Gmail / Google account is signed in to Google Flow
+                          --all checks every connected browser
   list-tabs               List open web tabs in Chrome / Brave
   help                    Show this help message
 
 Global Options:
-  --browser <number>      Target a specific browser instance (e.g. 1, 2 from 'bun run cli browsers')
+  --browser <id|index>    Target a browser by its id or index from 'bun run cli browsers' (default 1)
   --remote <url>          Remote WebSocket bridge URL (e.g. wss://prompt.yourdomain.com)
   --token <secret>        Shared authentication secret (or env PROMPT_PILOT_TOKEN)
 `);
@@ -166,8 +169,20 @@ async function main() {
     const targetBrowser = flagValue('--browser') || '1';
     switch (command) {
       case 'browsers': {
-        const list = await bridge.getConnectedBrowsers();
+        const list = await bridge.listBrowsers();
         console.log(JSON.stringify(list, null, 2));
+        break;
+      }
+
+      case 'credits':
+      case 'gmail': {
+        const accounts = await flowAccounts(bridge, targetBrowser, args.includes('--all'));
+        for (const a of accounts) {
+          const who = `${a.browser}${a.browserName ? ` (${a.browserName})` : ''}`;
+          if (a.error && a.email === null && a.credits === null) console.log(`${who}: ${a.error}`);
+          else if (command === 'credits') console.log(`${who}: ${a.credits ?? 'unknown'} credits${a.tier ? ` [${a.tier}]` : ''} - ${a.email ?? 'unknown account'}`);
+          else console.log(`${who}: ${a.email ?? 'unknown'}${a.name ? ` (${a.name})` : ''}`);
+        }
         break;
       }
 

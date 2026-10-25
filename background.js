@@ -20,6 +20,26 @@ async function getBridgeConfig() {
   };
 }
 
+// Stable per-profile id so the bridge can tell browsers apart across reconnects and restarts.
+async function getBrowserIdentity() {
+  const stored = await chrome.storage.local.get(['promptPilotBrowserId']);
+  let id = stored.promptPilotBrowserId;
+  if (!id) {
+    id = crypto.randomUUID().replace(/-/g, '').slice(0, 12);
+    await chrome.storage.local.set({ promptPilotBrowserId: id });
+  }
+  return { id, name: await detectBrowserName() };
+}
+
+async function detectBrowserName() {
+  if (await navigator.brave?.isBrave?.().catch(() => false)) return 'Brave';
+  const brands = navigator.userAgentData?.brands?.map((b) => b.brand) || [];
+  if (brands.includes('Microsoft Edge')) return 'Edge';
+  if (brands.includes('Opera')) return 'Opera';
+  if (brands.includes('Google Chrome')) return 'Chrome';
+  return 'Chromium';
+}
+
 async function connectBridge() {
   if (socket && (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING)) {
     return;
@@ -27,6 +47,7 @@ async function connectBridge() {
   isConnecting = true;
   try {
     const config = await getBridgeConfig();
+    const identity = await getBrowserIdentity();
     socket = new WebSocket(config.url);
 
     socket.onopen = async () => {
@@ -40,7 +61,9 @@ async function connectBridge() {
       socket.send(JSON.stringify({
         type: 'REGISTER',
         client: 'chrome-extension',
-        token: config.token
+        token: config.token,
+        browserId: identity.id,
+        browserName: identity.name
       }));
     };
     socket.onmessage = async (event) => {
@@ -285,6 +308,14 @@ async function handleBridgeAction(action, params) {
     return tabs
       .filter(t => t.url && !t.url.startsWith('chrome://') && !t.url.startsWith('brave://'))
       .map(t => ({ id: t.id, url: t.url, title: t.title, active: t.active, favIconUrl: t.favIconUrl }));
+  }
+
+  if (action === 'flow_account') {
+    const tabs = await chrome.tabs.query({});
+    const flowTab = tabs.find((t) => t.active && isGoogleFlowUrl(t.url)) || tabs.find((t) => isGoogleFlowUrl(t.url));
+    if (!flowTab?.id) throw new Error('No Google Flow tab is open in this browser.');
+    const resp = await sendToContentScript(flowTab.id, { type: 'PROMPT_PILOT_FLOW_ACCOUNT' });
+    return { tabId: flowTab.id, url: flowTab.url, ...resp };
   }
 
   const tab = await findTargetTab(params.site);

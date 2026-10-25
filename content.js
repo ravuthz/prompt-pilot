@@ -452,6 +452,71 @@
     return results;
   }
 
+  const EMAIL_RE = /[\w.+-]+@[\w-]+(?:\.[\w-]+)+/;
+
+  async function fetchJson(url, init) {
+    try {
+      const res = await fetch(url, { credentials: 'include', ...init });
+      return res.ok ? await res.json() : null;
+    } catch {
+      return null;
+    }
+  }
+
+  // Signed-in Google account and remaining AI credits for the Flow tab. The session token is used here only and never returned.
+  async function getFlowAccount() {
+    const account = { ok: false, email: null, name: null, credits: null, tier: null, source: {} };
+
+    let token = null;
+    for (const path of ['/fx/api/auth/session', '/api/auth/session']) {
+      const session = await fetchJson(path);
+      if (session?.user) {
+        account.email = session.user.email || null;
+        account.name = session.user.name || null;
+        token = session.access_token || null;
+        account.source.email = 'session';
+        break;
+      }
+    }
+
+    if (token) {
+      const data = await fetchJson('https://aisandbox-pa.googleapis.com/v1/credits', {
+        credentials: 'omit',
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (data && data.credits !== undefined) {
+        account.credits = Number(data.credits);
+        account.tier = data.userPaygateTier || null;
+        account.source.credits = 'api';
+      }
+    }
+
+    if (!account.email) {
+      // The avatar button usually carries "Google Account: Name (email)".
+      for (const el of document.querySelectorAll('[aria-label], img[alt], [title]')) {
+        const label = `${el.getAttribute('aria-label') || ''} ${el.getAttribute('alt') || ''} ${el.getAttribute('title') || ''}`;
+        const match = label.match(EMAIL_RE);
+        if (match) {
+          account.email = match[0];
+          account.source.email = 'page';
+          break;
+        }
+      }
+    }
+
+    if (account.credits === null) {
+      const match = (document.body?.innerText || '').match(/([\d][\d,.]*)\s*(?:AI\s*)?credits?\b/i);
+      if (match) {
+        account.credits = Number(match[1].replace(/[,.](?=\d{3}\b)/g, ''));
+        account.source.credits = 'page';
+      }
+    }
+
+    account.ok = Boolean(account.email || account.credits !== null);
+    if (!account.ok) account.error = 'Could not read the Flow account. Make sure you are signed in to Google Flow in this tab.';
+    return account;
+  }
+
   function getFlowState() {
     const buttons = [...document.querySelectorAll('button, [role="button"], mat-button-toggle, mat-select, [role="tab"], [role="switch"]')].filter(visible);
 
@@ -1682,6 +1747,10 @@
     if (message.type === 'PROMPT_PILOT_FLOW_STATE') {
       sendResponse({ ok: true, state: getFlowState() });
       return;
+    }
+    if (message.type === 'PROMPT_PILOT_FLOW_ACCOUNT') {
+      getFlowAccount().then(sendResponse);
+      return true;
     }
     if (message.type === 'PROMPT_PILOT_SCAN_MEDIA') {
       sendResponse({ media: scanMedia() });

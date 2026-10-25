@@ -278,3 +278,35 @@ export class JobQueue {
     }
   }
 }
+
+export interface FlowAccount {
+  browser: string;
+  browserName?: string;
+  email: string | null;
+  name?: string | null;
+  credits: number | null;
+  tier?: string | null;
+  error?: string;
+}
+
+// Signed-in Google account and AI credits of the Flow tab, for one browser or every connected one.
+export async function flowAccounts(bridge: Pick<BridgeHost, 'sendAction' | 'listBrowsers'>, browser?: string, all = false): Promise<FlowAccount[]> {
+  const browsers = await bridge.listBrowsers();
+  const targets = all ? browsers : [browsers.find((b) => b.id === browser || String(b.index) === browser) ?? { id: browser ?? '1', index: 0 }];
+  return Promise.all(targets.map(async (target): Promise<FlowAccount> => {
+    try {
+      const res = (await bridge.sendAction('flow_account', {}, 30000, target.id)) as Partial<FlowAccount> & { ok?: boolean };
+      return {
+        browser: target.id,
+        browserName: target.name,
+        email: res?.email ?? null,
+        name: res?.name ?? null,
+        credits: typeof res?.credits === 'number' ? res.credits : null,
+        tier: res?.tier ?? null,
+        ...(res?.ok === false && res.error ? { error: res.error } : {}),
+      };
+    } catch (err) {
+      return { browser: target.id, browserName: target.name, email: null, credits: null, error: errorText(err) };
+    }
+  }));
+}
