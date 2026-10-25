@@ -62,6 +62,10 @@ Commands:
   gmail [--all]           Show which Gmail / Google account is signed in to Google Flow
                           --all checks every connected browser
   list-tabs               List open web tabs in Chrome / Brave
+  open-tab [url]          Open a new tab (--background to keep the current tab in front)
+  focus-tab <tabId>       Switch to a tab and bring its window to the front
+  close-tab <tabId>       Close a tab
+  navigate-tab <tabId> [url]  Load a URL in a tab, or reload it when url is omitted
   help                    Show this help message
 
 Global Options:
@@ -194,6 +198,27 @@ async function main() {
 
       case 'list-tabs': {
         const result = await bridge.sendAction('list_tabs', {}, 30000, targetBrowser);
+        console.log(JSON.stringify(result, null, 2));
+        break;
+      }
+
+      case 'open-tab': {
+        const [url] = positionals();
+        const result = await bridge.sendAction('open_tab', { url, active: !args.includes('--background') }, 30000, targetBrowser);
+        console.log(JSON.stringify(result, null, 2));
+        break;
+      }
+
+      case 'focus-tab':
+      case 'close-tab':
+      case 'navigate-tab': {
+        const [tabId, url] = positionals();
+        if (!tabId || !Number.isInteger(Number(tabId))) {
+          console.error(`Error: Please provide a tab id (see 'bun run cli list-tabs').`);
+          process.exit(1);
+        }
+        const tabAction = command.replace('-tab', '_tab');
+        const result = await bridge.sendAction(tabAction, { tabId: Number(tabId), url }, 30000, targetBrowser);
         console.log(JSON.stringify(result, null, 2));
         break;
       }

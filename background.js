@@ -142,7 +142,13 @@ setInterval(() => {
     socket.send(JSON.stringify({ type: 'PING' }));
   }
 }, 10000);
-async function findTargetTab(siteFilter) {
+async function findTargetTab(siteFilter, tabId) {
+  // A picked tab wins; if it has since closed, fall back to matching by site
+  if (tabId != null) {
+    const picked = await chrome.tabs.get(Number(tabId)).catch(() => null);
+    if (picked) return picked;
+  }
+
   const tabs = await chrome.tabs.query({});
   const webTabs = tabs.filter(t => t.url && !t.url.startsWith('chrome://') && !t.url.startsWith('brave://') && !t.url.startsWith('edge://'));
 
@@ -298,6 +304,23 @@ async function downloadMediaItems(items) {
   return { results };
 }
 
+function tabInfo(t) {
+  return { id: t.id, windowId: t.windowId, url: t.url || t.pendingUrl, title: t.title, active: t.active, favIconUrl: t.favIconUrl };
+}
+
+function requireTabId(params) {
+  const tabId = Number(params.tabId);
+  if (!Number.isInteger(tabId)) throw new Error('tabId is required');
+  return tabId;
+}
+
+// Accept bare hosts like "flow.google" as well as full URLs
+function normalizeTabUrl(url) {
+  const value = String(url || '').trim();
+  if (!value) return 'about:blank';
+  return /^[a-z][a-z0-9+.-]*:/i.test(value) ? value : `https://${value}`;
+}
+
 async function handleBridgeAction(action, params) {
   if (action === 'download_media') {
     return downloadMediaItems(params.items);
@@ -307,7 +330,34 @@ async function handleBridgeAction(action, params) {
     const tabs = await chrome.tabs.query({});
     return tabs
       .filter(t => t.url && !t.url.startsWith('chrome://') && !t.url.startsWith('brave://'))
-      .map(t => ({ id: t.id, url: t.url, title: t.title, active: t.active, favIconUrl: t.favIconUrl }));
+      .map(tabInfo);
+  }
+
+  if (action === 'open_tab') {
+    const tab = await chrome.tabs.create({ url: normalizeTabUrl(params.url), active: params.active !== false });
+    if (params.active !== false) await chrome.windows.update(tab.windowId, { focused: true });
+    return tabInfo(tab);
+  }
+
+  if (action === 'focus_tab') {
+    const tab = await chrome.tabs.update(requireTabId(params), { active: true });
+    await chrome.windows.update(tab.windowId, { focused: true });
+    return tabInfo(tab);
+  }
+
+  if (action === 'close_tab') {
+    const tabId = requireTabId(params);
+    await chrome.tabs.remove(tabId);
+    return { closed: tabId };
+  }
+
+  if (action === 'navigate_tab') {
+    const tabId = requireTabId(params);
+    if (!params.url) {
+      await chrome.tabs.reload(tabId);
+      return tabInfo(await chrome.tabs.get(tabId));
+    }
+    return tabInfo(await chrome.tabs.update(tabId, { url: normalizeTabUrl(params.url) }));
   }
 
   if (action === 'flow_account') {
@@ -318,7 +368,7 @@ async function handleBridgeAction(action, params) {
     return { tabId: flowTab.id, url: flowTab.url, ...resp };
   }
 
-  const tab = await findTargetTab(params.site);
+  const tab = await findTargetTab(params.site, params.tabId);
   if (!tab || !tab.id) {
     throw new Error('No matching browser tab found.');
   }
@@ -381,13 +431,6 @@ async function handleBridgeAction(action, params) {
     case 'response_state': {
       const resp = await sendToContentScript(tab.id, { type: 'PROMPT_PILOT_RESPONSE_STATE' });
       return { tabId: tab.id, busy: resp?.busy || false };
-    }
-
-    case 'list_tabs': {
-      const tabs = await chrome.tabs.query({});
-      return tabs
-        .filter(t => t.url && !t.url.startsWith('chrome://'))
-        .map(t => ({ id: t.id, url: t.url, title: t.title, active: t.active, favIconUrl: t.favIconUrl }));
     }
 
     default:

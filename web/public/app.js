@@ -283,6 +283,17 @@ function renderTabs() {
       li.append(dot);
     }
 
+    const close = document.createElement('button');
+    close.className = 'tab-close';
+    close.title = 'Close tab in browser';
+    close.setAttribute('aria-label', `Close ${tab.title || 'tab'}`);
+    close.innerHTML = '<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg>';
+    close.addEventListener('click', (e) => {
+      e.stopPropagation();
+      tabCommand('close_tab', { tabId: tab.id }, close);
+    });
+    li.append(close);
+
     const pick = () => {
       if (tab.id === targetTabId) return;
       targetTabId = tab.id;
@@ -292,15 +303,27 @@ function renderTabs() {
       loadMedia($('scanMedia'));
     };
     li.addEventListener('click', pick);
+    // Double-click switches to the tab in the real browser, like clicking it there
+    li.addEventListener('dblclick', () => tabCommand('focus_tab', { tabId: tab.id }));
     li.addEventListener('keydown', (e) => {
+      if (e.target !== li) return;
       if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); pick(); }
+      if (e.key === 'Delete') tabCommand('close_tab', { tabId: tab.id });
     });
     list.append(li);
   }
 
   const omnibox = $('tabUrl');
-  omnibox.textContent = target ? target.url : 'No tab selected';
+  if (document.activeElement !== omnibox) omnibox.value = target ? target.url : '';
   omnibox.title = target ? target.url : '';
+}
+
+// Runs a tab control action on the real browser, then refreshes the tab strip
+async function tabCommand(name, params, button) {
+  const result = await run(`${name} → Browser ${state.selected}`, () => action(name, params), button);
+  if (result && name !== 'close_tab') targetTabId = result.id;
+  await loadTabs();
+  return result;
 }
 
 async function loadTabs() {
@@ -312,7 +335,8 @@ async function loadTabs() {
     openTabs = Array.isArray(tabs) ? tabs : [];
     if (openTabs.length === 0) {
       list.innerHTML = '<li class="muted">No web tabs open.</li>';
-      $('tabUrl').textContent = 'No tab selected';
+      targetTabId = null;
+      $('tabUrl').value = '';
       return;
     }
     renderTabs();
@@ -567,7 +591,7 @@ async function loadMedia(button) {
   grid.innerHTML = '<p class="muted">Scanning…</p>';
   $('mediaCount').textContent = '';
   const data = await run(`scan_media → Browser ${browserId}`, () =>
-    action('scan_media', { site: $('site').value.trim() || undefined }), button);
+    action('scan_media', { site: $('site').value.trim() || undefined, tabId: targetTabId ?? undefined }), button);
   // Ignore results if the user switched browser while scanning
   if (browserId !== state.selected) return;
   if (!data) {
@@ -615,7 +639,7 @@ const QUICK = {
     ]);
     return { browsers, state: flowState, queue: jobs.queue };
   },
-  detect: () => action('detect', { site: $('site').value.trim() || undefined }),
+  detect: () => action('detect', { site: $('site').value.trim() || undefined, tabId: targetTabId ?? undefined }),
   state: () => action('flow_state'),
   'open-project': () => action('open_flow_project'),
   // Walks every video card's menus, so allow far longer than the 30s default
@@ -646,6 +670,20 @@ const savedPanelTab = $(storageGet(PANEL_TAB_KEY) || '');
 if (savedPanelTab?.getAttribute('role') === 'tab') selectPanelTab(savedPanelTab);
 
 $('reloadTabs').addEventListener('click', loadTabs);
+$('newTab').addEventListener('click', (e) => tabCommand('open_tab', {}, e.currentTarget));
+$('focusTab').addEventListener('click', (e) => {
+  if (targetTabId != null) tabCommand('focus_tab', { tabId: targetTabId }, e.currentTarget);
+});
+$('tabUrlForm').addEventListener('submit', (e) => {
+  e.preventDefault();
+  const url = $('tabUrl').value.trim();
+  if (!url) return;
+  $('tabUrl').blur();
+  tabCommand(targetTabId == null ? 'open_tab' : 'navigate_tab', { tabId: targetTabId ?? undefined, url });
+});
+$('tabUrl').addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') { e.currentTarget.blur(); renderTabs(); }
+});
 $('clearLog').addEventListener('click', () => $('log').replaceChildren());
 
 loadBrowsers();

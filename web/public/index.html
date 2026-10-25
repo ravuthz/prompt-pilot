@@ -166,12 +166,20 @@
         <div class="card browser-window">
           <div class="chrome-strip">
             <ul class="chrome-tabs" id="tabList" role="tablist" aria-label="Open tabs"></ul>
+            <button class="icon-btn new-tab" id="newTab" title="New tab" aria-label="New tab">
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+            </button>
           </div>
           <div class="chrome-toolbar">
             <button class="icon-btn" id="reloadTabs" title="Reload tabs" aria-label="Reload tabs">
               <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/></svg>
             </button>
-            <div class="omnibox" id="tabUrl" title="">No tab selected</div>
+            <form class="omnibox-form" id="tabUrlForm">
+              <input class="omnibox" id="tabUrl" type="text" placeholder="No tab selected" aria-label="Tab address — press Enter to load it in the browser" spellcheck="false" autocomplete="off">
+            </form>
+            <button class="icon-btn" id="focusTab" title="Show this tab in the browser" aria-label="Show this tab in the browser">
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></svg>
+            </button>
           </div>
           <div class="browser-body">
             <div class="card-head">

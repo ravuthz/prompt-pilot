@@ -161,6 +161,12 @@ bun run cli upscale
 
 # List open browser tabs
 bun run cli list-tabs
+
+# Control real tabs by id (from list-tabs)
+bun run cli open-tab flow.google            # --background keeps the current tab in front
+bun run cli focus-tab 123456
+bun run cli navigate-tab 123456 https://suno.com   # omit the URL to reload
+bun run cli close-tab 123456
 ```
 
 ---
@@ -308,6 +314,10 @@ For Codex stdio, run `codex mcp add prompt-pilot -- "$(pwd -P)/mcp.sh"` from the
 | `flow_gmail`        | Gmail / Google account signed in to Flow.                                                           | `browser`, `all`                                                                                               |
 | `tab_detect`        | Detect the platform on the current tab.                                                             | `site`, `browser`                                                                                              |
 | `tab_list`          | List open tabs in the browser.                                                                      | `browser`                                                                                                      |
+| `tab_open`           | Open a new tab (bare hosts get `https://`).                                                          | `url`, `background`, `browser`                                                                                  |
+| `tab_focus`          | Switch to a tab and bring its window to the front.                                                   | `tabId`, `browser`                                                                                              |
+| `tab_close`          | Close a tab.                                                                                         | `tabId`, `browser`                                                                                              |
+| `tab_navigate`       | Load a URL in a tab, or reload it when `url` is omitted.                                             | `tabId`, `url`, `browser`                                                                                       |
 
 **Slow calls never hit the client's ~60 s timeout.** A call that runs longer than 45 s (`flow_upscale`,
 `flow_open_project`, large `flow_download`) answers with `still_working` and a `task_id`; pass it to `flow_wait`

@@ -199,11 +199,22 @@ main { padding: 20px; }
 .icon-btn.spinning svg { animation: spin .8s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .icon-btn.spinning svg { animation: none; } }
+.omnibox-form { flex: 1; min-width: 0; display: flex; }
 .omnibox {
-  flex: 1; min-width: 0; padding: 5px 14px; border-radius: 999px;
+  flex: 1; min-width: 0; padding: 5px 14px; border: 1px solid transparent; border-radius: 999px;
   background: var(--code); color: var(--muted); font-size: 12px;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
+.omnibox:focus { outline: none; border-color: var(--accent); background: var(--bg); color: var(--text); }
+.chrome-strip .new-tab { width: 26px; height: 26px; margin: 0 0 4px 4px; }
+.chrome-tab .tab-close {
+  width: 18px; height: 18px; flex-shrink: 0; display: grid; place-items: center;
+  margin-right: -6px; padding: 0; border: 0; border-radius: 50%;
+  background: none; color: var(--muted); cursor: pointer; opacity: 0;
+}
+.chrome-tab:hover .tab-close, .chrome-tab[aria-selected="true"] .tab-close, .tab-close:focus-visible { opacity: 1; }
+.chrome-tab .tab-close:hover { background: var(--code); color: var(--text); }
+@media (hover: none) { .chrome-tab .tab-close { opacity: 1; } }
 .browser-body { display: flex; flex-direction: column; gap: 10px; padding: 12px 16px 16px; min-width: 0; }
 
 label { display: flex; flex-direction: column; gap: 4px; flex: 1; font-size: 12px; color: var(--muted); }

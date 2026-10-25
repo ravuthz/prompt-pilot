@@ -71,6 +71,7 @@ const browserProp = {
   type: 'string',
   description: 'Target browser id from browser_list, or its 1-based index (optional, defaults to "1" = first connected).',
 };
+const tabIdProp = { type: 'number', description: 'Tab id from tab_list.' };
 const accountProps = {
   browser: browserProp,
   all: { type: 'boolean', description: 'Check every connected browser instead of one.' },
@@ -273,6 +274,41 @@ const TOOLS = [
     inputSchema: { type: 'object', properties: { browser: browserProp } },
     annotations: readOnly,
   },
+  {
+    name: 'tab_open',
+    description: 'Open a new tab in the real browser. Bare hosts like "flow.google" get https:// prepended.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        url: { type: 'string', description: 'URL to open (blank opens about:blank).' },
+        background: { type: 'boolean', description: 'Open without switching to it (default false).' },
+        browser: browserProp,
+      },
+    },
+    annotations: writes,
+  },
+  {
+    name: 'tab_focus',
+    description: 'Switch to a tab and bring its browser window to the front. Get tab ids from tab_list.',
+    inputSchema: { type: 'object', properties: { tabId: tabIdProp, browser: browserProp }, required: ['tabId'] },
+    annotations: writes,
+  },
+  {
+    name: 'tab_close',
+    description: 'Close a browser tab by id.',
+    inputSchema: { type: 'object', properties: { tabId: tabIdProp, browser: browserProp }, required: ['tabId'] },
+    annotations: { ...writes, destructiveHint: true },
+  },
+  {
+    name: 'tab_navigate',
+    description: 'Load a URL in an existing tab, or reload it when url is omitted.',
+    inputSchema: {
+      type: 'object',
+      properties: { tabId: tabIdProp, url: { type: 'string', description: 'URL to load; omit to reload.' }, browser: browserProp },
+      required: ['tabId'],
+    },
+    annotations: writes,
+  },
 ];
 
 function createMcpServer() {
@@ -421,6 +457,14 @@ async function callTool(name: string, args: Record<string, unknown>): Promise<un
       return bridge.sendAction('detect', { site: str(args.site) }, 30000, browser);
     case 'tab_list':
       return bridge.sendAction('list_tabs', {}, 30000, browser);
+    case 'tab_open':
+      return bridge.sendAction('open_tab', { url: str(args.url), active: args.background !== true }, 30000, browser);
+    case 'tab_focus':
+      return bridge.sendAction('focus_tab', { tabId: args.tabId }, 30000, browser);
+    case 'tab_close':
+      return bridge.sendAction('close_tab', { tabId: args.tabId }, 30000, browser);
+    case 'tab_navigate':
+      return bridge.sendAction('navigate_tab', { tabId: args.tabId, url: str(args.url) }, 30000, browser);
     default:
       throw new Error(`Unknown tool: ${name}`);
   }
