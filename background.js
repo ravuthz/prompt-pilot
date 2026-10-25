@@ -219,6 +219,84 @@ async function realMouse(tabId, { kind, x, y }) {
   }
 }
 
+// Flow hides each tile's More button in its narrow (mobile) layout; emulate a desktop-width viewport
+async function forceDesktopLayout(tabId) {
+  const target = { tabId };
+  try {
+    const { result } = await chrome.debugger.sendCommand(target, 'Runtime.evaluate', {
+      expression: '({ width: innerWidth, height: innerHeight, mobile: !!document.querySelector(".container.mobile") })',
+      returnByValue: true,
+    });
+    const layout = result?.value;
+    if (!layout || (!layout.mobile && layout.width >= 1000)) return false;
+    await chrome.debugger.sendCommand(target, 'Emulation.setDeviceMetricsOverride', { width: 1280, height: Math.max(layout.height, 720), deviceScaleFactor: 0, mobile: false });
+    await new Promise((r) => setTimeout(r, 1500));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// Folder for downloads started without a filename, keyed by URL; the file keeps its original name
+const originalNameFolders = new Map();
+
+// Flow's own downloads (blob: URLs it names itself) started by upscale_flow go to Prompt-Pilot/<folder>/
+const FLOW_DOWNLOAD_FOLDER_KEY = 'flowDownloadFolder';
+const FLOW_DOWNLOAD_WINDOW_MS = 10 * 60 * 1000;
+const isFlowBlob = (item) => /^blob:https:\/\/(flow\.google(\.com)?|labs\.google)\//.test(item.url || '');
+
+function safeFolderName(folder) {
+  return folder ? String(folder).replace(/[\\?%*:|"<>]/g, '_').replace(/^\/+|\/+$/g, '') : '';
+}
+
+const baseName = (path) => String(path || '').split(/[\\/]/).pop();
+
+chrome.downloads.onDeterminingFilename.addListener((item, suggest) => {
+  const original = baseName(item.filename);
+  const key = [item.url, item.finalUrl].find((url) => originalNameFolders.has(url));
+  if (item.byExtensionId === chrome.runtime.id && key) {
+    const folder = originalNameFolders.get(key);
+    originalNameFolders.delete(key);
+    suggest({ filename: `Prompt-Pilot/${folder ? `${folder}/` : ''}${original}`, conflictAction: 'uniquify' });
+    return;
+  }
+  if (!isFlowBlob(item)) { suggest(); return; }
+  chrome.storage.session.get(FLOW_DOWNLOAD_FOLDER_KEY).then((stored) => {
+    const run = stored[FLOW_DOWNLOAD_FOLDER_KEY];
+    if (!run || run.until < Date.now()) { suggest(); return; }
+    suggest({ filename: `Prompt-Pilot/${run.folder ? `${run.folder}/` : ''}${original}`, conflictAction: 'uniquify' });
+  }).catch(() => suggest());
+  return true;
+});
+
+// Resolves with the next Flow download started after `since` once it finishes (or errors / times out)
+const claimedFlowDownloads = new Set();
+
+async function waitForFlowDownload(since, timeoutMs) {
+  const deadline = Date.now() + Math.min(Number(timeoutMs) || 60000, 300000);
+  let id = null;
+  while (Date.now() < deadline) {
+    if (id === null) {
+      const items = await chrome.downloads.search({ startedAfter: new Date(since - 2000).toISOString(), orderBy: ['startTime'] });
+      const next = items.find((item) => isFlowBlob(item) && !claimedFlowDownloads.has(item.id));
+      if (next) { id = next.id; claimedFlowDownloads.add(id); }
+    }
+    if (id !== null) {
+      const [item] = await chrome.downloads.search({ id });
+      if (item?.state === 'complete') return { filename: baseName(item.filename), path: item.filename, bytes: item.fileSize };
+      if (item?.state === 'interrupted') return { error: `download failed (${item.error || 'interrupted'})` };
+    }
+    await new Promise((r) => setTimeout(r, 1000));
+  }
+  return { error: id === null ? 'no file arrived in time (Flow may still be upscaling; it will download when ready)' : 'download did not finish in time' };
+}
+
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (message?.type !== 'PROMPT_PILOT_WAIT_FLOW_DOWNLOAD') return;
+  waitForFlowDownload(message.since, message.timeoutMs).then(sendResponse, (err) => sendResponse({ error: err?.message || String(err) }));
+  return true;
+});
+
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message?.type !== 'PROMPT_PILOT_REAL_MOUSE' || !sender.tab?.id) return;
   realMouse(sender.tab.id, message).then(sendResponse);
@@ -285,17 +363,22 @@ async function sendToContentScript(tabId, message) {
 }
 
 // Saves media through chrome.downloads so the browser's own session cookies apply.
-async function downloadMediaItems(items) {
+// Items without a name keep the file's original name, saved under Prompt-Pilot/<folder>/
+async function downloadMediaItems(items, folder) {
   const list = Array.isArray(items) ? items : [];
+  const safeFolder = safeFolderName(folder);
   const results = [];
   for (const item of list) {
-    if (!item?.url || !item?.name) continue;
+    if (!item?.url) continue;
     if (item.url.startsWith('blob:')) {
       results.push({ url: item.url, name: item.name, ok: false, error: 'blob: URLs cannot be downloaded from the bridge' });
       continue;
     }
     try {
-      const downloadId = await chrome.downloads.download({ url: item.url, filename: `Prompt-Pilot/${item.name}`, conflictAction: 'uniquify', saveAs: false });
+      if (!item.name) originalNameFolders.set(item.url, safeFolder);
+      const downloadId = await chrome.downloads.download(item.name
+        ? { url: item.url, filename: `Prompt-Pilot/${item.name}`, conflictAction: 'uniquify', saveAs: false }
+        : { url: item.url, conflictAction: 'uniquify', saveAs: false });
       results.push({ url: item.url, name: item.name, ok: true, downloadId });
     } catch (err) {
       results.push({ url: item.url, name: item.name, ok: false, error: err?.message || String(err) });
@@ -323,7 +406,7 @@ function normalizeTabUrl(url) {
 
 async function handleBridgeAction(action, params) {
   if (action === 'download_media') {
-    return downloadMediaItems(params.items);
+    return downloadMediaItems(params.items, params.folder);
   }
 
   if (action === 'list_tabs') {
@@ -405,10 +488,15 @@ async function handleBridgeAction(action, params) {
     case 'upscale_flow': {
       // Hold one debugger session for the whole run instead of attaching per mouse move
       const held = await attachDebugger(tab.id);
+      const emulated = held && await forceDesktopLayout(tab.id);
+      await chrome.storage.session.set({ [FLOW_DOWNLOAD_FOLDER_KEY]: { folder: safeFolderName(params.folder), until: Date.now() + FLOW_DOWNLOAD_WINDOW_MS } });
       try {
-        const resp = await sendToContentScript(tab.id, { type: 'PROMPT_PILOT_UPSCALE_FLOW' });
+        const resp = await sendToContentScript(tab.id, { type: 'PROMPT_PILOT_UPSCALE_FLOW', urls: params.urls, quality: params.quality });
         return { tabId: tab.id, response: resp };
       } finally {
+        // Late upscales still land in the folder for a while after the run
+        await chrome.storage.session.set({ [FLOW_DOWNLOAD_FOLDER_KEY]: { folder: safeFolderName(params.folder), until: Date.now() + FLOW_DOWNLOAD_WINDOW_MS } });
+        if (emulated) await chrome.debugger.sendCommand({ tabId: tab.id }, 'Emulation.clearDeviceMetricsOverride').catch(() => {});
         if (held) await detachDebugger(tab.id);
       }
     }

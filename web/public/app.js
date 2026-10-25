@@ -150,6 +150,7 @@ document.querySelectorAll('.segmented').forEach((group) => {
     input.value = btn.dataset.value;
     syncSegments();
     if (input.id === 'mode') renderModelOptions();
+    if (input.id === 'mediaFilter') renderMedia();
     saveConfig();
   });
 });
@@ -518,10 +519,19 @@ $('retryFailed').addEventListener('click', (e) => jobsCommand('retry', undefined
 let mediaItems = [];
 const selectedMedia = new Set();
 
+// Only videos can be upscaled
+function selectedVideoUrls() {
+  return mediaItems.filter((m) => selectedMedia.has(m.url) && m.type === 'video').map((m) => m.url);
+}
+
 function syncDownloadButton() {
   const btn = $('downloadSelected');
   btn.disabled = selectedMedia.size === 0;
   btn.textContent = selectedMedia.size ? `Download selected (${selectedMedia.size})` : 'Download selected';
+  const videos = selectedVideoUrls().length;
+  const upscale = $('upscaleSelected');
+  upscale.disabled = videos === 0;
+  upscale.textContent = videos ? `Upscale 1080p (${videos})` : 'Upscale 1080p';
 }
 
 function renderMedia() {
@@ -543,7 +553,13 @@ function renderMedia() {
     const card = document.createElement('div');
     card.className = 'media-item';
     let preview;
-    if (m.type === 'video') {
+    if (m.flowTile && m.thumbnail) {
+      // Flow tiles only expose a thumbnail until they play
+      preview = document.createElement('img');
+      preview.src = m.thumbnail;
+      preview.loading = 'lazy';
+      preview.alt = m.name || '';
+    } else if (m.type === 'video') {
       preview = document.createElement('video');
       preview.src = m.url;
       preview.muted = true;
@@ -605,14 +621,44 @@ async function loadMedia(button) {
   renderMedia();
 }
 
-// Mirrors CLI `download` / MCP flow_download: saves to Downloads/Prompt-Pilot/<folder>/
-$('downloadSelected').addEventListener('click', (e) => run(`download ${selectedMedia.size} item(s) → Browser ${state.selected}`, () => api('/api/download', {
-  urls: [...selectedMedia],
-  name: $('mediaName').value.trim() || undefined,
-  folder: $('mediaFolder').value.trim() || undefined,
-  site: site(),
-  browser: state.selected,
-}), e.currentTarget));
+// Clicks Flow's own Download → <quality> on each tile, so files keep Flow's names
+// (prompt title + timestamp) and 1080p is really upscaled. Upscaling takes ~1–2 min per video.
+function flowMenuDownload(urls, quality) {
+  return api('/api/action', {
+    action: 'upscale_flow',
+    params: {
+      urls,
+      quality,
+      folder: $('mediaFolder').value.trim() || undefined,
+      site: site(),
+      tabId: targetTabId ?? undefined,
+    },
+    browser: state.selected,
+    timeoutMs: urls.length * (quality === '1080p' ? 260000 : 70000) + 60000,
+  });
+}
+
+// Flow videos go through Flow's menu (720p original); everything else is fetched directly.
+// Both keep the original file name and save to Downloads/Prompt-Pilot/<folder>/
+$('downloadSelected').addEventListener('click', (e) => {
+  const picked = mediaItems.filter((m) => selectedMedia.has(m.url));
+  const flowVideos = picked.filter((m) => m.flowTile).map((m) => m.url);
+  const direct = picked.filter((m) => !m.flowTile).map((m) => m.url);
+  run(`download ${picked.length} item(s) → Browser ${state.selected}`, async () => ({
+    ...(flowVideos.length ? { flow: await flowMenuDownload(flowVideos, '720p') } : {}),
+    ...(direct.length ? { direct: await api('/api/download', {
+      urls: direct,
+      folder: $('mediaFolder').value.trim() || undefined,
+      site: site(),
+      browser: state.selected,
+    }) } : {}),
+  }), e.currentTarget);
+});
+
+$('upscaleSelected').addEventListener('click', (e) => {
+  const urls = selectedVideoUrls();
+  run(`upscale 1080p ${urls.length} video(s) → Browser ${state.selected}`, () => flowMenuDownload(urls, '1080p'), e.currentTarget);
+});
 
 $('selectAllMedia').addEventListener('click', () => {
   const filter = $('mediaFilter').value;
@@ -624,7 +670,6 @@ $('selectAllMedia').addEventListener('click', () => {
 });
 
 $('scanMedia').addEventListener('click', (e) => loadMedia(e.currentTarget));
-$('mediaFilter').addEventListener('change', renderMedia);
 
 /* ---------- Quick actions (mirror CLI commands) ---------- */
 

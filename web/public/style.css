@@ -281,6 +281,7 @@ textarea { resize: vertical; }
 .segmented button + button { border-left: 1px solid var(--border); }
 .segmented button:hover { background: var(--code); }
 .segmented button[aria-pressed="true"] { background: var(--accent); color: var(--accent-text); }
+.segmented.compact button { flex: none; font-size: 12px; padding: 5px 10px; }
 
 .card.compact { padding: 10px 12px; gap: 6px; }
 

@@ -875,6 +875,19 @@
       if (clip.image_url) add(clip.image_url, 'image', 0, 0, title, trackCounter);
     };
 
+    // Flow video tiles: listed as videos even before they play (only a thumbnail is in the DOM)
+    if (adapter().name === 'Google Flow') {
+      for (const { tile, urls, key, title } of flowVideoTiles()) {
+        if (!key || addedUrls.has(key)) continue;
+        const thumb = tile.querySelector('img');
+        trackCounter += 1;
+        add(key, 'video', thumb?.naturalWidth || 0, thumb?.naturalHeight || 0, title || 'video', trackCounter);
+        const item = items.find((entry) => entry.url === key);
+        if (item) Object.assign(item, { flowTile: true, thumbnail: thumb?.src || '' });
+        urls.forEach((url) => addedUrls.add(url));
+      }
+    }
+
     // 2. Scan DOM elements sorted from top to bottom
     const allDomElements = [
       ...document.querySelectorAll('a[href*="/song/"], video, audio, img, [style*="background-image"], a[href], [data-url], [data-src], [data-audio-url], [data-video-url], [data-clip-url]')
@@ -1031,7 +1044,8 @@
         type: item.type,
         width: item.width,
         height: item.height,
-        name: finalName
+        name: finalName,
+        ...(item.flowTile ? { flowTile: true, thumbnail: item.thumbnail } : {})
       };
     });
   }
@@ -1168,67 +1182,170 @@
   }
 
   const isDownloadLabel = (text) => /^download\b/i.test(text);
-  const isUpscaledLabel = (text) => /1080p/i.test(text) && /upscal/i.test(text);
+  // Download submenu options: "270p Animated GIF", "720p Original size", "1080p Upscaled", "4K Upscaled"
+  const FLOW_QUALITY_LABELS = {
+    gif: /^270p\b|animated gif/i,
+    '720p': /^720p\b|original size/i,
+    '1080p': /^1080p\b/i,
+    '4k': /^4k\b/i,
+  };
 
-  async function upscaleFlowVideos() {
-    if (adapter().name !== 'Google Flow') return { ok: false, error: '1080p upscaling is available only on Google Flow.' };
-    const cards = [...new Set([...document.querySelectorAll('video')].filter(visible).map(videoCard))];
-    let completed = 0;
+  // Every option in the open menus, to explain a missing item
+  function menuOptionLabels() {
+    return [...new Set(openMenus().flatMap((menu) => [...menu.querySelectorAll('[role^="menuitem"], button')]
+      .filter(visible)
+      .map((element) => {
+        const label = menuLabel(element) || element.getAttribute('aria-label') || '';
+        const disabled = element.hasAttribute('data-disabled') || element.getAttribute('aria-disabled') === 'true' || element.disabled;
+        return label ? `${label.slice(0, 40)}${disabled ? ' (disabled)' : ''}` : '';
+      })
+      .filter(Boolean)))];
+  }
+
+  const absoluteUrl = (url) => { try { return new URL(url, location.href).href; } catch { return url; } };
+
+  // Flow video tiles in the grid; thumbnails always exist, <video> only while a tile plays
+  function flowVideoTiles() {
+    return [...document.querySelectorAll('flow-grid-tile-container')]
+      .filter((tile) => tile.querySelector('flow-video-tile, video'))
+      .map((tile) => {
+        const video = tile.querySelector('video');
+        const urls = [tile.querySelector('img')?.src, video?.currentSrc, video?.src, video?.poster].filter(Boolean).map(absoluteUrl);
+        return { tile, urls, key: urls[0], title: tile.getAttribute('aria-label') || '' };
+      });
+  }
+
+  // A thumbnail URL is the video URL plus a suffix, so either may have been selected
+  const sameMedia = (a, b) => a === b || a.startsWith(b) || b.startsWith(a);
+
+  function flowScroller() {
+    return document.querySelector('.cdk-virtual-scrollable') || document.scrollingElement;
+  }
+
+  // Opens the tile's More → Download submenu and clicks the requested quality
+  async function flowTileDownload(tile, quality) {
+    tile.scrollIntoView({ block: 'center', behavior: 'auto' });
+    await delay(300);
+    // The tile's buttons only render while the pointer is over its top-right corner
+    const box = tile.getBoundingClientRect();
+    await realMouse('move', box.left + box.width / 2, box.top + box.height / 2);
+    await realMouse('move', box.right - 24, box.top + 24);
+    hover(tile);
+    const moreButton = await waitForCondition(() => [...tile.querySelectorAll('button[aria-haspopup="menu"], button')]
+      .find((button) => visible(button) && button.getBoundingClientRect().width > 0 && /more/i.test(button.getAttribute('aria-label') || '')), 2500, 100);
+    if (!moreButton) {
+      const mobile = Boolean(document.querySelector('.container.mobile'));
+      return { error: `More (⋮) button did not appear${mobile ? ' (Flow is in its narrow mobile layout)' : ''}` };
+    }
+    const before = openMenus().length;
+    const opened = ((await realClick(moreButton)) && await waitForCondition(() => openMenus().length > before, 1500, 80))
+      || await openMenuFrom(moreButton);
+    if (!opened) return { error: 'More menu did not open' };
+
+    const downloadItem = await waitForCondition(() => visibleMenuItem(isDownloadLabel), 1500, 80);
+    if (!downloadItem) {
+      const error = `"Download" not in the More menu (options: ${menuOptionLabels().join(', ') || 'none'})`;
+      await closeMenus();
+      return { error };
+    }
+    // Material submenus open on hover
+    const isQuality = (text) => FLOW_QUALITY_LABELS[quality].test(text);
+    const [dx, dy] = centerOf(downloadItem);
+    await realMouse('move', dx, dy);
+    const option = await waitForCondition(() => visibleMenuItem(isQuality), 1500, 80)
+      || await openSubmenu(downloadItem, isQuality);
+    if (!option) {
+      const error = `no "${quality}" option under Download (options: ${menuOptionLabels().join(', ') || 'none'})`;
+      await closeMenus();
+      return { error };
+    }
+    // Slide across to the submenu without crossing other items, then click
+    const [ox, oy] = centerOf(option);
+    await realMouse('move', ox - 30, dy);
+    await realMouse('move', ox, oy);
+    await delay(120);
+    const since = Date.now();
+    if (!(await realClick(option))) option.click();
+    await delay(400);
+    await closeMenus();
+    return { since };
+  }
+
+  // Downloads videos through Flow's own Download menu, so files keep Flow's names
+  // (e.g. "Prompt_title_1080p_20261025100756.mp4") and 1080p/4K are really upscaled.
+  // urls: scan_media URLs to limit the run to; otherwise every video tile on screen.
+  async function flowMenuDownload(urls, quality = '1080p') {
+    if (adapter().name !== 'Google Flow') return { ok: false, error: 'Flow downloads are available only on Google Flow.' };
+    if (!FLOW_QUALITY_LABELS[quality]) return { ok: false, error: `Unknown quality "${quality}". Use gif, 720p, 1080p or 4k.` };
+    const wanted = Array.isArray(urls) && urls.length ? urls.map(absoluteUrl) : null;
+    const pendingUrls = new Set(wanted || []);
+    const done = new Set();
+    const results = [];
     const errors = [];
     await closeMenus();
 
-    for (let index = 0; index < cards.length; index += 1) {
-      const card = cards[index];
-      const label = `video ${index + 1}`;
-      card.scrollIntoView({ block: 'center', behavior: 'auto' });
-      await delay(250);
-      const video = card.querySelector('video') || card;
-      // The More button only renders while the pointer is over the card's top-right corner
-      const box = video.getBoundingClientRect();
-      await realMouse('move', box.left + box.width / 2, box.top + box.height / 2);
-      await realMouse('move', box.right - 24, box.top + 24);
-      hover(card);
-      hover(video);
-      // Only this card's own More button — never another card's, or the wrong video gets downloaded
-      const moreButton = await waitForCondition(() => visibleMoreButton(card, video) || visibleMoreButton(document, video), 2000, 100);
-      if (!moreButton) {
-        errors.push(`${label}: More (⋮) button not found on the card (buttons seen: ${buttonsNear(video).join(', ') || 'none'})`);
-        continue;
-      }
-      const before = openMenus().length;
-      const opened = ((await realClick(moreButton)) && await waitForCondition(() => openMenus().length > before, 1200, 80))
-        || await openMenuFrom(moreButton);
-      if (!opened) {
-        errors.push(`${label}: More menu did not open`);
-        continue;
-      }
-      const downloadItem = await waitForCondition(() => visibleMenuItem(isDownloadLabel), 1500, 80);
-      if (!downloadItem) {
-        errors.push(`${label}: "Download" not in the More menu`);
-        await closeMenus();
-        continue;
-      }
-      await realClick(downloadItem);
-      const upscaleItem = await waitForCondition(() => visibleMenuItem(isUpscaledLabel), 1200, 80)
-        || await openSubmenu(downloadItem, isUpscaledLabel);
-      if (!upscaleItem) {
-        errors.push(`${label}: "Upscaled (1080p)" not in the Download menu`);
-        await closeMenus();
-        continue;
-      }
-      if (!(await realClick(upscaleItem))) upscaleItem.click();
-      completed += 1;
-      await delay(600);
-      await closeMenus();
-    }
+    const scroller = flowScroller();
+    const startTop = scroller.scrollTop;
+    if (wanted) scroller.scrollTop = 0;
+    await delay(wanted ? 500 : 0);
 
-    if (!cards.length) return { ok: false, total: 0, completed, errors, error: 'No visible videos found. Scroll through the Flow gallery first.' };
+    // The grid is virtualised: walk it from the top, handling selected tiles as they render
+    for (let pass = 0; pass < 200; pass += 1) {
+      const matches = (entry, url) => entry.urls.some((own) => sameMedia(own, url));
+      const tiles = flowVideoTiles().filter((entry) => entry.key && !done.has(entry.key)
+        && (wanted ? [...pendingUrls].some((url) => matches(entry, url)) : visible(entry.tile)));
+      for (const entry of tiles) {
+        const { tile, key, title } = entry;
+        done.add(key);
+        for (const url of [...pendingUrls]) if (matches(entry, url)) pendingUrls.delete(url);
+        const label = title || `video ${results.length + 1}`;
+        const outcome = await flowTileDownload(tile, quality);
+        if (outcome.error) {
+          errors.push(`${label}: ${outcome.error}`);
+          results.push({ url: key, title, ok: false, error: outcome.error });
+          continue;
+        }
+        // "Upscale everything on screen" keeps the old fire-and-forget behaviour
+        if (!wanted) {
+          results.push({ url: key, title, ok: true, started: true });
+          await delay(600);
+          continue;
+        }
+        // Flow upscales server-side before the file arrives; wait so jobs don't pile up
+        const file = await chrome.runtime.sendMessage({
+          type: 'PROMPT_PILOT_WAIT_FLOW_DOWNLOAD',
+          since: outcome.since,
+          timeoutMs: quality === '1080p' || quality === '4k' ? 240000 : 60000,
+        }).catch(() => null);
+        if (file?.filename) {
+          results.push({ url: key, title, ok: true, filename: file.filename });
+        } else {
+          const error = file?.error || 'started, but no file arrived yet (Flow may still be upscaling)';
+          errors.push(`${label}: ${error}`);
+          results.push({ url: key, title, ok: false, error });
+        }
+      }
+      if (!wanted || !pendingUrls.size) break;
+      const top = scroller.scrollTop;
+      scroller.scrollTop = top + scroller.clientHeight * 0.8;
+      await delay(500);
+      if (scroller.scrollTop === top) break;
+    }
+    if (wanted) scroller.scrollTop = startTop;
+
+    if (pendingUrls.size) errors.push(`${pendingUrls.size} selected item(s) not found in this Flow project (rescan and try again)`);
+    const completed = results.filter((r) => r.ok).length;
+    if (!results.length) {
+      const error = wanted ? 'None of the selected items are videos in this Flow project.' : 'No visible videos found.';
+      return { ok: false, total: 0, completed, results, errors, error };
+    }
     return {
       ok: completed > 0,
-      total: cards.length,
+      total: results.length,
       completed,
+      results,
       errors,
-      error: completed ? undefined : `No upscale was started: ${errors[0]}`,
+      error: completed ? undefined : `No ${quality} download finished: ${errors[0]}`,
     };
   }
 
@@ -1757,7 +1874,7 @@
       return;
     }
     if (message.type === 'PROMPT_PILOT_UPSCALE_FLOW') {
-      upscaleFlowVideos().then(sendResponse);
+      flowMenuDownload(message.urls, message.quality || '1080p').then(sendResponse);
       return true;
     }
     if (message.type === 'PROMPT_PILOT_RESPONSE_STATE') {

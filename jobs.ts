@@ -83,12 +83,13 @@ async function isBusy(bridge: Bridge, site?: string, browser?: string): Promise<
   }
 }
 
-export async function downloadMedia(bridge: Bridge, items: { url: string; name: string }[], site?: string, browser?: string) {
+// Items without a name keep their original file name, saved under Prompt-Pilot/<folder>/
+export async function downloadMedia(bridge: Bridge, items: { url: string; name?: string }[], site?: string, browser?: string, folder?: string) {
   if (!items.length) return [];
-  const res = (await bridge.sendAction('download_media', { items, site }, 60000, browser)) as {
-    results?: { name: string; ok: boolean; error?: string }[];
+  const res = (await bridge.sendAction('download_media', { items, site, folder }, 60000, browser)) as {
+    results?: { url: string; name?: string; ok: boolean; error?: string }[];
   };
-  return (res?.results ?? []).map(({ name, ok, error }) => ({ name, ok, error }));
+  return (res?.results ?? []).map(({ url, name, ok, error }) => ({ name: name ?? url, ok, error }));
 }
 
 export function mediaFileNames(media: MediaItem[], stem: string, folder?: string) {

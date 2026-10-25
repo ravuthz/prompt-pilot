@@ -124,9 +124,13 @@ async function download(body: Record<string, unknown>) {
     urls = media.filter((m) => !type || m.type === type).slice(-latest).map((m) => m.url);
   }
   if (!urls.length) throw new Error('Pass urls, or latest with a number of items to download.');
+  const folder = str(body.folder);
+  const stem = str(body.name);
+  // Without a name, files keep their original names (saved under Prompt-Pilot/<folder>/)
+  if (!stem) return { results: await withBridge((b) => downloadMedia(b, urls.map((url) => ({ url })), site, browser, folder)) };
   const byUrl = new Map(media.map((m) => [m.url, m]));
   const items = urls.map((url) => byUrl.get(url) ?? { url, type: 'image' });
-  const names = mediaFileNames(items, str(body.name) ?? 'media', str(body.folder));
+  const names = mediaFileNames(items, stem, folder);
   return { results: await withBridge((b) => downloadMedia(b, names, site, browser)) };
 }
 

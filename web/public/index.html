@@ -185,19 +185,20 @@
             <div class="card-head">
               <h2>Media list <span class="muted" id="mediaCount"></span></h2>
               <div class="actions">
-                <select id="mediaFilter" aria-label="Filter media type">
-                  <option value="">All</option>
-                  <option value="image">Images</option>
-                  <option value="video">Videos</option>
-                  <option value="audio">Audio</option>
-                </select>
+                <input type="hidden" id="mediaFilter" value="" />
+                <div class="segmented compact" data-for="mediaFilter" role="group" aria-label="Filter media type">
+                  <button type="button" data-value="">All</button>
+                  <button type="button" data-value="image">Images</button>
+                  <button type="button" data-value="video">Videos</button>
+                  <button type="button" data-value="audio">Audio</button>
+                </div>
                 <button class="btn" id="scanMedia">Scan</button>
               </div>
             </div>
             <div class="row download-bar">
-              <input id="mediaName" placeholder="File name (media)" aria-label="File name stem" />
               <input id="mediaFolder" placeholder="Folder" aria-label="Download folder" />
               <button class="btn" id="downloadSelected" disabled>Download selected</button>
+              <button class="btn" id="upscaleSelected" disabled title="Download the selected Flow videos upscaled to 1080p">Upscale 1080p</button>
               <button class="btn ghost" id="selectAllMedia">Select all</button>
             </div>
             <div class="media-grid" id="mediaList">
